@@ -35,6 +35,14 @@ Kernel with binder/binderfs support
 Mosquitto Broker
 ```
 
+The add-on supports `aarch64`. On Orange Pi 4 Pro / ARM64, Home Assistant Supervisor builds it from:
+
+```text
+ghcr.io/home-assistant/aarch64-base:3.21
+```
+
+The Dockerfile intentionally has no `amd64-base` fallback; Supervisor passes the correct `BUILD_FROM` value from `addon/config.yaml`.
+
 Google Play Services / FCM are usually required for reliable push notifications. If GMS is missing, the Web UI shows:
 
 ```text

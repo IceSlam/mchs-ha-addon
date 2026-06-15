@@ -10,4 +10,4 @@ const val KEY_LAST_SENT = "last_sent"
 const val DEFAULT_ENDPOINT = "http://127.0.0.1:8765/notification"
 const val DEFAULT_MCHS_PACKAGE = "ru.mchs.app"
 
-val MCHS_PACKAGE_CANDIDATES = listOf("ru.mchs", "ru.mchs.app", "ru.mchs.mobile", "ru.mchs.informer")
+val MCHS_PACKAGE_CANDIDATES = listOf("ru.mchs", "ru.mchs.app", "ru.mchs.mobile", "ru.mchs.informer", "io.citizens.security")

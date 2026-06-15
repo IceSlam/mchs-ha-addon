@@ -3,8 +3,12 @@ version: "0.2.0"
 slug: mchs_alert_bridge
 description: Redroid Android, MQTT bridge, provisioning and health monitor for MCHS alerts
 url: https://github.com/IceSlam/ha-mchs-alert
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base:3.21
+  amd64: ghcr.io/home-assistant/amd64-base:3.21
 arch:
   - aarch64
+  - amd64
 startup: services
 boot: auto
 init: false
@@ -53,6 +57,7 @@ options:
     - "ru.mchs.app"
     - "ru.mchs.mobile"
     - "ru.mchs.informer"
+    - "io.citizens.security"
   keywords:
     uav:
       - "беспилотная опасность"
