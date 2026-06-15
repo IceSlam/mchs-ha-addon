@@ -46,7 +46,7 @@ def notification_access() -> str:
 
 
 def mchs_package() -> str:
-    for pkg in ["ru.mchs", "ru.mchs.app", "ru.mchs.mobile", "ru.mchs.informer"]:
+    for pkg in ["ru.mchs", "ru.mchs.app", "ru.mchs.mobile", "ru.mchs.informer", "io.citizens.security"]:
         if package_present(pkg):
             return pkg
     return ""
