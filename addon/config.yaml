@@ -1,5 +1,5 @@
 name: MCHS Alert
-version: "0.2.0"
+version: "0.3.0"
 slug: mchs_alert_bridge
 description: Redroid Android, MQTT bridge, provisioning and health monitor for MCHS alerts
 url: https://github.com/IceSlam/ha-mchs-alert
