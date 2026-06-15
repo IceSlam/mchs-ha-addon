@@ -74,7 +74,13 @@ grant_common_permissions() {
 }
 
 check_gms() {
-  if pkg_installed com.google.android.gms; then echo "present"; else echo "missing"; fi
+  if ! adb -s "$ADB_TARGET" get-state >/dev/null 2>&1; then
+    echo "unknown"
+  elif adb -s "$ADB_TARGET" shell pm list packages com.google.android.gms 2>/dev/null | grep -q 'com.google.android.gms'; then
+    echo "installed"
+  else
+    echo "missing"
+  fi
 }
 
 notification_access_status() {
@@ -118,8 +124,8 @@ main() {
 
   local gms listener_apk mchs_pkg notification_status
   gms="$(check_gms)"
-  if [ "$gms" = "missing" ]; then
-    log "Google Play Services not detected. Push notifications may not work."
+  if [ "$gms" = "missing" ] && [ "$REDROID_REQUIRES_GMS" = "true" ]; then
+    log "Google Play Services are missing. FCM push notifications may not work. Use a Redroid image with GMS/MindTheGapps."
   fi
 
   listener_apk="$(listener_apk_path || true)"

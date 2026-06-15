@@ -49,7 +49,26 @@ Google Play Services / FCM are usually required for reliable push notifications.
 Google Play Services not detected. Push notifications may not work.
 ```
 
-Use an ARM64 Redroid image with GMS if your MCHS app build depends on FCM.
+Use an ARM64 Redroid image with GMS/MindTheGapps if your MCHS app build depends on FCM. The default is configurable:
+
+```yaml
+redroid_image: "aureliolo/redroid:14.0.0_arm64_with_gapps"
+redroid_requires_gms: true
+```
+
+You can replace `redroid_image` with another ARM64 Redroid image that contains working Google Play Services. MicroG is experimental for this use case; for alert push notifications, prefer full GMS/MindTheGapps. GApps/MindTheGapps ZIP files are not included in this repository for licensing reasons.
+
+If `sensor.mchs_gms_status = missing`, push notifications may not arrive.
+
+## Docker API
+
+The add-on starts and monitors a sibling Redroid container, so it requires Home Assistant add-on Docker API access:
+
+```yaml
+docker_api: true
+```
+
+If Docker API is unavailable, the Web UI reports `docker_api: unavailable` and Redroid is not restarted in a loop.
 
 ## Quick Install
 

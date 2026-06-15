@@ -11,6 +11,9 @@ Requirements:
 - legal MCHS APK supplied by the user.
 
 On `aarch64`, Supervisor uses `ghcr.io/home-assistant/aarch64-base:3.21` from `build_from`.
+The add-on requires top-level `docker_api: true`; without it Redroid cannot start.
+
+For FCM push notifications, use a Redroid image with GMS/MindTheGapps. The default image is configurable through `redroid_image`, currently `aureliolo/redroid:14.0.0_arm64_with_gapps`. If GMS is missing, `sensor.mchs_gms_status` reports `missing`.
 
 Open the Web UI after start. It shows Redroid, ADB, GMS, listener, MCHS and provisioning status, and provides APK upload and provisioning buttons.
 

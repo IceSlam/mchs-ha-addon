@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import cgi
 import html
 import json
 import os
 import subprocess
+from email.parser import BytesParser
+from email.policy import default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -25,6 +26,11 @@ def run(cmd: list[str], timeout: int = 20) -> tuple[int, str]:
         return 1, str(exc)
 
 
+def adb_device_available() -> bool:
+    run(["adb", "connect", "127.0.0.1:5555"], timeout=3)
+    return run(["adb", "-s", "127.0.0.1:5555", "get-state"], timeout=3)[0] == 0
+
+
 def read_json(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -35,10 +41,14 @@ def read_json(path: Path) -> dict:
 
 
 def package_present(package_name: str) -> bool:
+    if not adb_device_available():
+        return False
     return run(["adb", "-s", "127.0.0.1:5555", "shell", "pm", "path", package_name], timeout=5)[0] == 0
 
 
 def notification_access() -> str:
+    if not adb_device_available():
+        return "unknown"
     code, out = run(["adb", "-s", "127.0.0.1:5555", "shell", "settings", "get", "secure", "enabled_notification_listeners"], timeout=5)
     if code != 0:
         return "unknown"
@@ -81,7 +91,7 @@ def android_ui_status_payload() -> dict:
         "redroid": redroid,
         "adb": adb,
         "boot_completed": boot_completed,
-        "message": "Built-in ADB screenshot/tap Android UI"
+        "message": "Built-in ADB screenshot/tap Android UI" if adb == "connected" else "Android device is not connected yet. Start Redroid first and wait until boot is completed."
     }
 
 
@@ -102,7 +112,7 @@ def status() -> dict:
         "adb": redroid.get("adb", "unknown"),
         "android_boot": redroid.get("boot_completed", "0"),
         "kernel": redroid.get("kernel", read_json(STATUS_DIR / "kernel.json")),
-        "google_play_services": "present" if package_present("com.google.android.gms") else "missing",
+        "google_play_services": gms_status(),
         "listener_apk": "bundled" if BUNDLED_LISTENER_APK.exists() else ("uploaded" if LISTENER_APK.exists() else "missing"),
         "listener": "installed" if package_present("dev.mchsha.listener") else "missing",
         "mchs_apk_uploaded": MCHS_APK.exists(),
@@ -123,6 +133,15 @@ def http_json(url: str) -> dict:
         return json.loads(out)
     except json.JSONDecodeError:
         return {"raw": out}
+
+
+def gms_status() -> str:
+    if not adb_device_available():
+        return "unknown"
+    code, out = run(["adb", "-s", "127.0.0.1:5555", "shell", "pm", "list", "packages", "com.google.android.gms"], timeout=5)
+    if code == 0 and "com.google.android.gms" in out:
+        return "installed"
+    return "missing"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -166,33 +185,52 @@ class Handler(BaseHTTPRequestHandler):
             self.android_text()
             return
         if path in ("/android/key/back", "/android-ui/key/back"):
-            self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "4"], timeout=10)
+            self.run_command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "4"], timeout=10, require_adb=True)
             return
         if path in ("/android/key/home", "/android-ui/key/home"):
-            self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "3"], timeout=10)
+            self.run_command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "3"], timeout=10, require_adb=True)
             return
         if path in routes:
             cmd, timeout = routes[path]
-            self.command(cmd, timeout=timeout)
+            self.run_command(cmd, timeout=timeout, require_adb=path in ("/open-notification-access", "/open-mchs"))
             return
         self.send_error(404)
 
     def upload_apk(self, target: Path) -> None:
-        ctype, pdict = cgi.parse_header(self.headers.get("content-type", ""))
-        if ctype != "multipart/form-data":
+        content_type = self.headers.get("content-type", "")
+        if not content_type.startswith("multipart/form-data"):
             self.send_error(400, "multipart/form-data required")
             return
-        form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={"REQUEST_METHOD": "POST"})
-        item = form["apk"] if "apk" in form else None
-        if item is None or not item.file:
+        length = int(self.headers.get("content-length", "0"))
+        raw = self.rfile.read(length)
+        message = BytesParser(policy=default).parsebytes(
+            b"Content-Type: " + content_type.encode("utf-8") + b"\r\n\r\n" + raw
+        )
+        file_payload = None
+        if message.is_multipart():
+            for part in message.iter_parts():
+                if part.get_param("name", header="content-disposition") == "apk":
+                    file_payload = part.get_payload(decode=True)
+                    break
+        if not file_payload:
             self.send_error(400, "apk file required")
             return
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(item.file.read())
+        target.write_bytes(file_payload)
         self.redirect(".")
 
-    def command(self, cmd: list[str], timeout: int = 60) -> None:
-        code, out = run(cmd, timeout=timeout)
+    def run_command(self, cmd: list[str], timeout: int = 60, require_adb: bool = False) -> None:
+        if require_adb and not adb_device_available():
+            self.send_android_unavailable()
+            return
+        try:
+            code, out = run(cmd, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.send_error(504, "Command timed out")
+            return
+        except Exception as exc:
+            self.send_error(500, str(exc))
+            return
         self.send_html(f"<pre>{html.escape(out)}</pre><p>Exit code: {code}</p><p><a href='.'>Back</a></p>")
 
     def android_ui_page(self) -> str:
@@ -267,9 +305,16 @@ class Handler(BaseHTTPRequestHandler):
 </html>"""
 
     def android_screenshot(self) -> None:
-        proc = subprocess.run(["adb", "-s", "127.0.0.1:5555", "exec-out", "screencap", "-p"], capture_output=True, timeout=10)
+        if not adb_device_available():
+            self.send_android_unavailable()
+            return
+        try:
+            proc = subprocess.run(["adb", "-s", "127.0.0.1:5555", "exec-out", "screencap", "-p"], capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            self.send_error(504, "Android screenshot timed out")
+            return
         if proc.returncode != 0:
-            self.send_error(503, proc.stderr.decode(errors="ignore"))
+            self.send_android_unavailable(proc.stderr.decode(errors="ignore"))
             return
         self.send_response(200)
         self.send_header("content-type", "image/png")
@@ -285,15 +330,21 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def android_tap(self) -> None:
+        if not adb_device_available():
+            self.send_android_unavailable()
+            return
         body = self.read_json_body()
         x = str(int(body.get("x", 0)))
         y = str(int(body.get("y", 0)))
-        self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", x, y], timeout=10)
+        self.run_command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", x, y], timeout=10, require_adb=True)
 
     def android_text(self) -> None:
+        if not adb_device_available():
+            self.send_android_unavailable()
+            return
         body = self.read_json_body()
         text = str(body.get("text", "")).replace(" ", "%s")
-        self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "text", text], timeout=10)
+        self.run_command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "text", text], timeout=10, require_adb=True)
 
     def render(self) -> str:
         data = status()
@@ -350,6 +401,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def send_android_unavailable(self, detail: str = "") -> None:
+        payload = {
+            "error": "android_device_unavailable",
+            "message": "Android device is not connected yet. Start Redroid first and wait until boot is completed.",
+            "detail": detail,
+            "status": android_ui_status_payload()
+        }
+        accept = self.headers.get("accept", "")
+        if "text/html" in accept:
+            self.send_response(503)
+            self.send_header("content-type", "text/html; charset=utf-8")
+            body = (
+                "<h1>Android device unavailable</h1>"
+                f"<pre>{html.escape(json.dumps(payload, ensure_ascii=False, indent=2))}</pre>"
+                "<p><a href='android-ui'>Back to Android UI</a></p>"
+            ).encode("utf-8")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(503)
+        self.send_header("content-type", "application/json; charset=utf-8")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def redirect(self, location: str) -> None:
         self.send_response(303)

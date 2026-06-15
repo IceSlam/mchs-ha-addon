@@ -26,6 +26,7 @@ chmod +x "$TMP/bin/jq"
 cat > "$TMP/opt/mchs-redroid/common.sh" <<EOF
 OPTIONS_FILE="$TMP/options.json"
 ADB_TARGET="127.0.0.1:5555"
+REDROID_REQUIRES_GMS="true"
 opt() { echo "\$2"; }
 log() { printf '[test] %s\n' "\$*"; }
 adb_connect() { true; }

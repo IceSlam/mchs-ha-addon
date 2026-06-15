@@ -1,5 +1,5 @@
 name: MCHS Alert
-version: "0.3.3"
+version: "0.3.4"
 slug: mchs_alert_bridge
 description: Redroid Android, MQTT bridge, provisioning and health monitor for MCHS alerts
 url: https://github.com/IceSlam/ha-mchs-alert
@@ -20,6 +20,7 @@ privileged:
   - SYS_ADMIN
   - NET_ADMIN
   - DAC_READ_SEARCH
+  - SYS_RESOURCE
 ports:
   8765/tcp: 8765
   8099/tcp: 8099
@@ -45,7 +46,8 @@ options:
   webui_port: 8099
   android_ui_enabled: true
   redroid_enabled: true
-  redroid_image: "redroid/redroid:13.0.0-latest"
+  redroid_image: "aureliolo/redroid:14.0.0_arm64_with_gapps"
+  redroid_requires_gms: true
   redroid_container_name: "mchs-redroid"
   redroid_adb_port: 5555
   redroid_userdata: "/data/redroid"
@@ -97,6 +99,7 @@ schema:
   android_ui_enabled: bool
   redroid_enabled: bool
   redroid_image: str
+  redroid_requires_gms: bool
   redroid_container_name: str
   redroid_adb_port: port
   redroid_userdata: str

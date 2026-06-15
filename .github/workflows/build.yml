@@ -26,6 +26,9 @@ jobs:
       - run: npm run build
         working-directory: addon/bridge
       - run: bash addon/provisioning/tests/test_provisioning.sh
+      - run: python -m py_compile addon/webui/server.py
+      - run: '! grep -R "self.command(" addon/webui/server.py'
+      - run: grep -q '^docker_api: true$' addon/config.yaml
 
   android:
     runs-on: ubuntu-latest

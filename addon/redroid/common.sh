@@ -13,7 +13,8 @@ opt() {
   fi
 }
 
-REDROID_IMAGE="$(opt redroid_image redroid/redroid:13.0.0-latest)"
+REDROID_IMAGE="$(opt redroid_image aureliolo/redroid:14.0.0_arm64_with_gapps)"
+REDROID_REQUIRES_GMS="$(opt redroid_requires_gms true)"
 REDROID_NAME="$(opt redroid_container_name mchs-redroid)"
 REDROID_ADB_PORT="$(opt redroid_adb_port 5555)"
 REDROID_USERDATA="$(opt redroid_userdata /data/redroid)"
@@ -26,6 +27,17 @@ log() {
 
 docker_available() {
   docker version >/dev/null 2>&1
+}
+
+write_docker_unavailable_status() {
+  mkdir -p /data/status
+  jq -n '{
+    docker_api: "unavailable",
+    redroid: "stopped",
+    adb: "offline",
+    boot_completed: false,
+    message: "Docker API unavailable. Add docker_api: true to addon/config.yaml and rebuild/reinstall the add-on."
+  }' > /data/status/redroid.json
 }
 
 adb_connect() {

@@ -28,6 +28,7 @@ publish() {
 while true; do
   health="$(/opt/mchs-redroid/manager.sh health 2>/dev/null || echo '{}')"
   redroid="$(echo "$health" | jq -r '.redroid // "unknown"' 2>/dev/null || echo unknown)"
+  docker_api="$(echo "$health" | jq -r '.docker_api // "unknown"' 2>/dev/null || echo unknown)"
   adb_state="$(echo "$health" | jq -r '.adb // "unknown"' 2>/dev/null || echo unknown)"
   boot="$(echo "$health" | jq -r '.boot_completed // "0"' 2>/dev/null || echo 0)"
 
@@ -35,14 +36,16 @@ while true; do
   mchs="missing"
   gms="missing"
   provisioning="unknown"
-  adb_connect
-  if adb -s "$ADB_TARGET" shell pm path dev.mchsha.listener >/dev/null 2>&1; then
-    listener="installed"
+  if [ "$adb_state" = "connected" ]; then
+    adb_connect
+    if adb -s "$ADB_TARGET" shell pm path dev.mchsha.listener >/dev/null 2>&1; then
+      listener="installed"
+    fi
+    if adb -s "$ADB_TARGET" shell pm list packages com.google.android.gms 2>/dev/null | grep -q 'com.google.android.gms'; then
+      gms="installed"
+    fi
   fi
-  if adb -s "$ADB_TARGET" shell pm path com.google.android.gms >/dev/null 2>&1; then
-    gms="present"
-  fi
-  if [ -f "$OPTIONS_FILE" ]; then
+  if [ "$adb_state" = "connected" ] && [ -f "$OPTIONS_FILE" ]; then
     while read -r pkg; do
       if adb -s "$ADB_TARGET" shell pm path "$pkg" >/dev/null 2>&1; then
         mchs="$pkg"
@@ -51,7 +54,7 @@ while true; do
     done < <(jq -r '.mchs_package_candidates[]?' "$OPTIONS_FILE")
   fi
 
-  android_status="$redroid/adb:$adb_state/boot:$boot"
+  android_status="$redroid/docker:$docker_api/adb:$adb_state/boot:$boot"
   if [ -f /data/status/provisioning.json ]; then
     provisioning="$(jq -r '.status // "unknown"' /data/status/provisioning.json 2>/dev/null || echo unknown)"
   fi
@@ -63,7 +66,9 @@ while true; do
   publish "mchs/system/provisioning" "$provisioning"
   publish "mchs/alerts/listener_status" "$listener"
 
-  if [ "$redroid" != "running" ] || [ "$adb_state" != "connected" ] || [ "$boot" != "1" ]; then
+  if [ "$docker_api" = "unavailable" ]; then
+    log "watchdog cannot restart redroid: docker api unavailable"
+  elif [ "$redroid" != "running" ] || [ "$adb_state" != "connected" ] || [ "$boot" != "1" ]; then
     log "watchdog restarting redroid after unhealthy state: $android_status"
     /opt/mchs-redroid/manager.sh restart >/dev/null 2>&1 || true
     /opt/mchs-provisioning/provision.sh >/dev/null 2>&1 || true

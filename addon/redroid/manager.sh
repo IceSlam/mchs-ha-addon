@@ -14,7 +14,8 @@ container_running() {
 
 start_redroid() {
   if ! docker_available; then
-    log "docker api unavailable; enable docker_api for this add-on"
+    log "Docker API unavailable. Add docker_api: true to addon/config.yaml and rebuild/reinstall the add-on."
+    write_docker_unavailable_status
     exit 2
   fi
 
@@ -105,19 +106,34 @@ health() {
   local running="stopped"
   local adb_state="offline"
   local boot="0"
-  container_running && running="running"
-  adb_connect
-  adb -s "$ADB_TARGET" get-state >/dev/null 2>&1 && adb_state="connected"
-  boot="$(adb -s "$ADB_TARGET" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  local docker_api="available"
+  if ! docker_available; then
+    docker_api="unavailable"
+    write_docker_unavailable_status
+  else
+    container_running && running="running"
+    adb_connect
+    adb -s "$ADB_TARGET" get-state >/dev/null 2>&1 && adb_state="connected"
+    boot="$(adb -s "$ADB_TARGET" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  fi
   local diagnostics
   diagnostics="$(/opt/mchs-redroid/diagnostics.sh 2>/dev/null || echo '{}')"
   jq -n \
+    --arg docker_api "$docker_api" \
     --arg running "$running" \
     --arg adb "$adb_state" \
     --arg boot "${boot:-0}" \
     --arg target "$ADB_TARGET" \
     --argjson kernel "$diagnostics" \
-    '{redroid:$running, adb:$adb, boot_completed:$boot, adb_target:$target, kernel:$kernel}'
+    '{
+      docker_api:$docker_api,
+      redroid:$running,
+      adb:$adb,
+      boot_completed:$boot,
+      adb_target:$target,
+      kernel:$kernel,
+      message:(if $docker_api == "unavailable" then "Docker API unavailable. Add docker_api: true to addon/config.yaml and rebuild/reinstall the add-on." else "" end)
+    }'
 }
 
 case "$cmd" in
