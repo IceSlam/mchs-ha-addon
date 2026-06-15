@@ -36,9 +36,9 @@ jobs:
       - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - run: ./gradlew assembleDebug
         working-directory: android-listener
-      - run: mkdir -p ../releases && cp app/build/outputs/apk/debug/app-debug.apk ../releases/mchs-alert-listener.apk
+      - run: mkdir -p ../releases && cp app/build/outputs/apk/debug/app-debug.apk ../releases/mchs-listener.apk
         working-directory: android-listener
       - uses: actions/upload-artifact@v4
         with:
-          name: mchs-alert-listener.apk
-          path: releases/mchs-alert-listener.apk
+          name: mchs-listener.apk
+          path: releases/mchs-listener.apk

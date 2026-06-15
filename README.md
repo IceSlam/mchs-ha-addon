@@ -1,165 +1,98 @@
 # ha-mchs-alert
 
-Home Assistant add-on, MQTT bridge, and Android Notification Listener APK for events from the official Android application "МЧС России".
+Home Assistant Supervised add-on for receiving MCHS Russia Android push notifications inside a local Redroid Android container and publishing alert state to MQTT/Home Assistant.
 
-Проект не является официальным каналом оповещения. Для критичных сценариев используйте несколько источников подтверждения.
-
-## Что делает проект
+New architecture:
 
 ```text
-Android device / emulator / container
--> официальное приложение "МЧС России"
--> MCHS Alert Listener APK
--> HTTP Bridge add-on
--> MQTT
--> Home Assistant entities
--> ваши автоматизации
+Home Assistant Supervised
+├── MCHS Alert Add-on
+│   ├── MQTT Bridge
+│   ├── Redroid Manager
+│   ├── APK Provisioner
+│   ├── Web UI
+│   └── Health Monitor
+└── Redroid Android 13 Container
+    ├── Google Play Services
+    ├── МЧС России
+    └── Notification Listener
 ```
 
-Проект не взламывает приложение МЧС, не перехватывает трафик, не использует private API, не обходит защиту и не делает reverse engineering. Listener читает только системные Android-уведомления через официальное разрешение Notification Access, которое пользователь выдает вручную.
+No external Android phone is required.
 
-## Быстрая установка
+## Important Limits
 
-1. Установите Mosquitto Broker в Home Assistant.
-2. Добавьте этот репозиторий как add-on repository.
-3. Установите add-on `MCHS Alert Bridge`.
-4. В настройках add-on выберите регион, например `Брянская область`.
-5. Запустите add-on.
-6. Скачайте APK из GitHub Actions artifacts или Releases: `mchs-alert-listener.apk`.
-7. Установите APK на Android-устройство.
-8. Установите официальное приложение `МЧС России`.
-9. В listener APK нажмите `Find MCHS app`, затем `Open notification access` и выдайте доступ к уведомлениям.
-10. Укажите bridge URL, например `http://192.168.1.20:8765/notification`, или откройте deep link:
+This add-on manages a sibling `redroid/redroid` Docker container through the Home Assistant Supervised Docker API. The host must support Android binder/ashmem or binderfs. On Orange Pi 4 Pro / RK3399 this depends on the Debian kernel package and boot configuration.
 
-```text
-mchslistener://setup?endpoint=http://192.168.1.20:8765/notification
-```
+Google Play Services are not bundled by this project. Use a Redroid image that includes working GMS, or install a compatible GMS setup yourself. The Web UI reports `google_play_services: missing` if GMS is absent.
 
-QR для deep link можно сделать так:
+The project does not reverse engineer the MCHS app, intercept traffic, use private APIs, bypass protection, or modify the MCHS app. It reads Android system notifications through the official Notification Access permission.
 
-```bash
-qrencode -o mchs-listener-setup.png 'mchslistener://setup?endpoint=http://192.168.1.20:8765/notification'
-```
+This project is not an official alerting channel. Use multiple confirmation sources for critical scenarios.
 
-11. Нажмите `Send test`.
-12. Проверьте сущности Home Assistant и добавьте свои автоматизации.
+## User Flow
 
-## Что пользователь делает вручную
+After installing the add-on, the user should only need to:
 
-- устанавливает официальное приложение `МЧС России`;
-- разрешает уведомления для приложения МЧС;
-- отключает энергосбережение для приложения МЧС и listener APK;
-- выдает listener APK доступ к уведомлениям;
-- выбирает регион в настройках add-on;
-- настраивает свои автоматизации.
+1. Install and start the add-on.
+2. Open add-on Web UI.
+3. Upload/install the official MCHS APK if it is not already present in the Redroid image.
+4. Open Android UI/controls and authorize the MCHS app.
+5. Grant Notification Access to `MCHS Alert Listener`.
+6. Select region in add-on config.
+7. Create Home Assistant automations.
 
-## Что происходит автоматически
+Everything else is handled by the add-on:
 
-- listener находит приложение МЧС по известным package name и label;
-- listener отправляет уведомления в bridge и ставит последние 20 событий в очередь при недоступности bridge;
-- bridge классифицирует тревогу, отбой и unknown-события;
-- MQTT topics публикуются автоматически;
-- MQTT Discovery создает сущности Home Assistant;
-- `binary_sensor.mchs_alert` включается при тревоге и выключается при отбое;
-- unknown-уведомления не сбрасывают активную тревогу.
+- starts Redroid;
+- waits for ADB and Android boot;
+- installs listener APK from `addon/provisioning/apks/mchs-listener.apk`;
+- installs uploaded MCHS APK from Web UI;
+- opens Notification Listener settings;
+- monitors Redroid/ADB/listener/MQTT;
+- publishes MQTT Discovery entities.
 
 ## Add-on Config
 
 ```yaml
-mqtt_host: core-mosquitto
-mqtt_port: 1883
-mqtt_username: ""
-mqtt_password: ""
-mqtt_discovery: true
-discovery_prefix: homeassistant
-
 region: "Брянская область"
-regions:
-  - "Брянская область"
-
+redroid_image: "redroid/redroid:13.0.0-latest"
+redroid_container_name: "mchs-redroid"
+redroid_adb_port: 5555
+redroid_userdata: "/data/redroid"
+mqtt_discovery: true
 filter_by_region: true
-publish_unknown: true
-retain_state: true
-deduplicate_window_seconds: 30
-auto_clear_minutes: 0
-
-listener_http_port: 8765
-
-keywords:
-  uav:
-    - "беспилотная опасность"
-    - "бпла"
-    - "угроза атаки бпла"
-    - "опасность атаки бпла"
-  missile:
-    - "ракетная опасность"
-    - "ракетная угроза"
-  air:
-    - "воздушная тревога"
-    - "авиационная опасность"
-  cancel:
-    - "отбой"
-    - "опасность отменена"
-    - "отмена опасности"
-    - "отбой беспилотной опасности"
-    - "отбой ракетной опасности"
 ```
 
-`auto_clear_minutes: 0` означает, что тревога не сбрасывается автоматически.
+Persistent Android data is mounted at `/data/redroid` for userdata, MCHS settings, FCM tokens and permissions.
 
-## Android APK
+## Web UI
 
-Пользователю не нужно собирать APK вручную. CI собирает `mchs-alert-listener.apk` и публикует его как GitHub Actions artifact. Для релиза загрузите этот файл в GitHub Releases с именем:
+Home Assistant -> MCHS Alert Add-on -> Open Web UI.
+
+The Web UI exposes:
+
+- Redroid/ADB/GMS/listener status;
+- MCHS APK upload;
+- provisioning trigger;
+- Redroid restart;
+- open Android Notification Access settings.
+
+Graphical Android access requires a scrcpy/noVNC-compatible backend for the host. The current MVP provides the management hooks and reports display backend status. On production images this should be wired to a host-compatible scrcpy-web/noVNC service.
+
+## MQTT Entities
+
+MQTT Discovery creates:
 
 ```text
-mchs-alert-listener.apk
+binary_sensor.mchs_alert
+sensor.mchs_alert_type
+sensor.mchs_alert_region
+sensor.mchs_alert_message
+sensor.mchs_android_status
+sensor.mchs_listener_status
+sensor.mchs_bridge_status
 ```
-
-Dev-сборка при необходимости:
-
-```bash
-cd android-listener
-./gradlew assembleDebug
-```
-
-Listener автоматически ищет приложение МЧС среди пакетов:
-
-```text
-ru.mchs
-ru.mchs.app
-ru.mchs.mobile
-ru.mchs.informer
-```
-
-Также проверяется label приложения: `МЧС`, `МЧС России`, `MCHS`. Если найден один кандидат, он выбирается автоматически. Если найдено несколько, APK показывает список. Ручной package name оставлен как advanced-настройка.
-
-ADB-команда для отладки:
-
-```bash
-adb shell pm list packages | grep -i mchs
-```
-
-## Bridge Endpoints
-
-```text
-GET  /health
-GET  /status
-POST /notification
-POST /test/uav
-POST /test/missile
-POST /test/air
-POST /test/cancel
-POST /test/unknown
-```
-
-Проверка:
-
-```bash
-curl -X POST http://127.0.0.1:8765/test/uav
-curl http://127.0.0.1:8765/status
-```
-
-## MQTT
 
 Topics:
 
@@ -168,50 +101,43 @@ mchs/alerts/state
 mchs/alerts/type
 mchs/alerts/region
 mchs/alerts/message
-mchs/alerts/last_seen
-mchs/alerts/last_event_type
-mchs/alerts/last_event_message
-mchs/alerts/last_event_seen
-mchs/alerts/listener_status
-mchs/alerts/bridge_status
-mchs/alerts/raw
+mchs/system/android
+mchs/system/listener
+mchs/system/bridge
 ```
 
-Debug:
+## Watchdog
 
-```bash
-mosquitto_sub -h core-mosquitto -t 'mchs/#' -v
-```
+The health monitor checks:
 
-`mchs/alerts/bridge_status` используется как availability topic. Bridge публикует `online`, MQTT Last Will публикует `offline`.
+- Redroid container running;
+- ADB connected;
+- `sys.boot_completed=1`;
+- listener package installed;
+- MQTT publishing path.
 
-## Home Assistant Entities
+If Android is unhealthy, the watchdog restarts Redroid and runs provisioning again.
 
-MQTT Discovery создает:
+## Listener APK
+
+The listener source remains in `android-listener/`, but it is no longer intended for a user phone. CI builds it as `mchs-alert-listener.apk`; place/release it as:
 
 ```text
-binary_sensor.mchs_alert
-sensor.mchs_alert_type
-sensor.mchs_alert_region
-sensor.mchs_alert_message
-sensor.mchs_alert_last_seen
-sensor.mchs_alert_last_event_type
-sensor.mchs_alert_last_event_message
-sensor.mchs_alert_last_event_seen
-sensor.mchs_alert_listener_status
-sensor.mchs_alert_bridge_status
+addon/provisioning/apks/mchs-listener.apk
 ```
 
-Custom integration `custom_components/mchs_alert` необязательна. Если `mqtt_discovery: true`, она обычно не нужна. Если хотите использовать integration, можно отключить discovery в add-on и указать `topic_prefix`, по умолчанию `mchs/alerts`.
+Inside Redroid it posts to:
 
-Manual YAML-вариант есть в [custom_components/mchs_alert/README.md](/home/iceslam/PhpstormProjects/mchs-ha-addon/custom_components/mchs_alert/README.md).
+```text
+http://127.0.0.1:8765/notification
+```
 
-## Примеры автоматизаций
+Redroid runs with host networking so this endpoint reaches the add-on bridge.
 
-Persistent notification:
+## Automation Example
 
 ```yaml
-alias: МЧС — уведомление в Home Assistant
+alias: МЧС — тревога
 trigger:
   - platform: state
     entity_id: binary_sensor.mchs_alert
@@ -224,40 +150,7 @@ action:
 mode: single
 ```
 
-Сирена/реле:
-
-```yaml
-alias: МЧС — включить сирену
-trigger:
-  - platform: state
-    entity_id: binary_sensor.mchs_alert
-    to: "on"
-action:
-  - service: switch.turn_on
-    target:
-      entity_id: switch.sirena
-mode: single
-```
-
-Отбой:
-
-```yaml
-alias: МЧС — отбой
-trigger:
-  - platform: state
-    entity_id: binary_sensor.mchs_alert
-    to: "off"
-action:
-  - service: persistent_notification.create
-    data:
-      title: "МЧС — отбой"
-      message: "{{ states('sensor.mchs_alert_message') }}"
-mode: single
-```
-
-## Development
-
-Bridge:
+## Development Checks
 
 ```bash
 cd addon/bridge
@@ -267,21 +160,11 @@ npm run test
 npm run build
 ```
 
-Add-on Docker build from `addon/` context:
-
 ```bash
-docker build -t mchs-alert-bridge:test addon
+docker build -t mchs-alert:addon addon
 ```
-
-Android:
 
 ```bash
 cd android-listener
-./gradlew assembleDebug
+./gradlew clean assembleDebug
 ```
-
-CI проверяет bridge и Android build в `.github/workflows/build.yml`.
-
-## Ограничения
-
-Это MVP, основанный на тексте push-уведомлений Android. Качество классификации зависит от текста уведомлений приложения МЧС и выбранного региона. Для надежных сценариев используйте несколько независимых источников оповещения.

@@ -6,3 +6,5 @@ build/
 *.apk
 *.aab
 local.properties
+__pycache__/
+*.pyc

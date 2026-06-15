@@ -43,14 +43,6 @@ class MainActivity : Activity() {
                 refreshStatus()
             }
         }
-        val defaultEndpoint = Button(this).apply {
-            text = "Use default address"
-            setOnClickListener {
-                endpoint.setText(DEFAULT_ENDPOINT)
-                prefs.edit().putString(KEY_ENDPOINT, DEFAULT_ENDPOINT).apply()
-                refreshStatus()
-            }
-        }
         val find = Button(this).apply {
             text = "Find MCHS app"
             setOnClickListener { findAndSelectPackage() }
@@ -82,10 +74,8 @@ class MainActivity : Activity() {
             addView(TextView(this@MainActivity).apply {
                 text = "Install the official MCHS Russia app, grant notification access to this listener, and send a test event."
             })
-            addView(endpoint)
             addView(packageInput)
             addView(save)
-            addView(defaultEndpoint)
             addView(find)
             addView(permission)
             addView(test)

@@ -1,16 +1,15 @@
-# MCHS Alert Bridge add-on
+# MCHS Alert Add-on
 
-This add-on exposes `POST /notification` on port `8765`, classifies Android notification text from the MCHS Russia app, and publishes Home Assistant MQTT topics and discovery payloads.
+This add-on runs:
 
-Version `0.1.0` supports external Android devices, emulators, or containers. Android-in-Docker is intentionally not enabled by default because it depends on host kernel binder/ashmem support and elevated privileges.
+- MQTT bridge;
+- Redroid Android manager;
+- APK provisioning;
+- setup Web UI;
+- health monitor/watchdog.
 
-Endpoints:
+It is designed for Home Assistant Supervised on ARM64 hosts such as Orange Pi 4 Pro / RK3399 with Docker and a kernel that supports Redroid binder requirements.
 
-- `GET /health`
-- `GET /status`
-- `POST /notification`
-- `POST /test/uav`
-- `POST /test/missile`
-- `POST /test/air`
-- `POST /test/cancel`
-- `POST /test/unknown`
+The add-on requires `docker_api: true` because it starts a sibling `redroid/redroid` container. Android userdata is persisted at `/data/redroid`.
+
+Open the add-on Web UI to upload the MCHS APK, run provisioning, open Notification Access settings and check Redroid/ADB/listener status.

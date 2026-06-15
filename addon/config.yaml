@@ -1,7 +1,7 @@
-name: MCHS Alert Bridge
-version: "0.1.0"
+name: MCHS Alert
+version: "0.2.0"
 slug: mchs_alert_bridge
-description: MQTT bridge for Android MCHS Russia notification alerts
+description: Redroid Android, MQTT bridge, provisioning and health monitor for MCHS alerts
 url: https://github.com/IceSlam/ha-mchs-alert
 arch:
   - aarch64
@@ -12,10 +12,19 @@ arch:
 startup: services
 boot: auto
 init: false
+docker_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:android
+privileged:
+  - SYS_ADMIN
+  - NET_ADMIN
 ports:
   8765/tcp: 8765
+  8099/tcp: 8099
 ports_description:
   8765/tcp: Android listener HTTP endpoint
+  8099/tcp: MCHS Alert setup Web UI
 options:
   mqtt_host: core-mosquitto
   mqtt_port: 1883
@@ -32,6 +41,17 @@ options:
   deduplicate_window_seconds: 30
   auto_clear_minutes: 0
   listener_http_port: 8765
+  webui_port: 8099
+  redroid_image: "redroid/redroid:13.0.0-latest"
+  redroid_container_name: "mchs-redroid"
+  redroid_adb_port: 5555
+  redroid_userdata: "/data/redroid"
+  redroid_extra_args: ""
+  mchs_package_candidates:
+    - "ru.mchs"
+    - "ru.mchs.app"
+    - "ru.mchs.mobile"
+    - "ru.mchs.informer"
   keywords:
     uav:
       - "беспилотная опасность"
@@ -66,6 +86,14 @@ schema:
   deduplicate_window_seconds: int(0,)
   auto_clear_minutes: int(0,)
   listener_http_port: port
+  webui_port: port
+  redroid_image: str
+  redroid_container_name: str
+  redroid_adb_port: port
+  redroid_userdata: str
+  redroid_extra_args: str?
+  mchs_package_candidates:
+    - str
   keywords:
     uav:
       - str
