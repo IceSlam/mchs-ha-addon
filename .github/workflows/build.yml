@@ -27,8 +27,17 @@ jobs:
         working-directory: addon/bridge
       - run: bash addon/provisioning/tests/test_provisioning.sh
       - run: python -m py_compile addon/webui/server.py
-      - run: '! grep -R "self.command(" addon/webui/server.py'
-      - run: grep -q '^docker_api: true$' addon/config.yaml
+      - name: Ensure WebUI does not use self.command
+        shell: bash
+        run: |
+          if grep -R "self.command(" addon/webui/server.py; then
+            echo "Do not use self.command because it conflicts with BaseHTTPRequestHandler.command"
+            exit 1
+          fi
+      - name: Ensure Docker API is enabled
+        shell: bash
+        run: |
+          grep -q '^docker_api: true$' addon/config.yaml
 
   android:
     runs-on: ubuntu-latest
