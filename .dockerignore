@@ -1,7 +1,7 @@
 .git
 .idea
-bridge/node_modules
-bridge/dist
+addon/bridge/node_modules
+addon/bridge/dist
 android-listener/.gradle
 android-listener/**/build
 *.apk

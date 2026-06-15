@@ -1,12 +1,20 @@
 # MCHS Alert custom integration
 
-This integration creates MQTT-backed Home Assistant entities for the topics published by the add-on:
+This optional integration creates MQTT-backed Home Assistant entities for the topics published by the add-on.
+If MQTT Discovery is enabled in the add-on, Home Assistant creates the same user-facing entities automatically and this integration is not needed.
+
+The config flow allows setting `topic_prefix`; default is `mchs/alerts`.
 
 - `binary_sensor.mchs_alert`
 - `sensor.mchs_alert_type`
 - `sensor.mchs_alert_region`
 - `sensor.mchs_alert_message`
 - `sensor.mchs_alert_last_seen`
+- `sensor.mchs_alert_last_event_type`
+- `sensor.mchs_alert_last_event_message`
+- `sensor.mchs_alert_last_event_seen`
+- `sensor.mchs_alert_listener_status`
+- `sensor.mchs_alert_bridge_status`
 
 MQTT discovery from the add-on is usually enough. Install this custom integration only if you prefer explicit integration setup through the Home Assistant UI.
 

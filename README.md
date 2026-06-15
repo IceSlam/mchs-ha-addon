@@ -1,61 +1,96 @@
 # ha-mchs-alert
 
-Home Assistant add-on, MQTT bridge, and Android Notification Listener APK for alerts delivered by the Android application "МЧС России".
+Home Assistant add-on, MQTT bridge, and Android Notification Listener APK for events from the official Android application "МЧС России".
 
-The project does not reverse engineer the MCHS app, intercept traffic, bypass protections, or modify the app. The Android component only reads system notifications through the official Android `NotificationListenerService` after the user grants notification access.
+Проект не является официальным каналом оповещения. Для критичных сценариев используйте несколько источников подтверждения.
 
-## Architecture
+## Что делает проект
 
 ```text
 Android device / emulator / container
--> МЧС России app
+-> официальное приложение "МЧС России"
 -> MCHS Alert Listener APK
--> HTTP POST /notification
--> bridge service
+-> HTTP Bridge add-on
 -> MQTT
--> Home Assistant entities and automations
+-> Home Assistant entities
+-> ваши автоматизации
 ```
 
-Version `0.1.0` supports `android_mode: external`: Android runs separately and sends events to the add-on. A redroid-style Android-in-Docker mode is intentionally left experimental because it depends on host kernel binder/ashmem support and privileged runtime settings.
+Проект не взламывает приложение МЧС, не перехватывает трафик, не использует private API, не обходит защиту и не делает reverse engineering. Listener читает только системные Android-уведомления через официальное разрешение Notification Access, которое пользователь выдает вручную.
 
-## Why there is no MCHS API
+## Быстрая установка
 
-This project intentionally avoids private APIs and traffic interception. It uses only notification text that Android already exposes to a user-approved notification listener.
-
-## Repository Layout
+1. Установите Mosquitto Broker в Home Assistant.
+2. Добавьте этот репозиторий как add-on repository.
+3. Установите add-on `MCHS Alert Bridge`.
+4. В настройках add-on выберите регион, например `Брянская область`.
+5. Запустите add-on.
+6. Скачайте APK из GitHub Actions artifacts или Releases: `mchs-alert-listener.apk`.
+7. Установите APK на Android-устройство.
+8. Установите официальное приложение `МЧС России`.
+9. В listener APK нажмите `Find MCHS app`, затем `Open notification access` и выдайте доступ к уведомлениям.
+10. Укажите bridge URL, например `http://192.168.1.20:8765/notification`, или откройте deep link:
 
 ```text
-addon/                 Home Assistant add-on metadata and container entrypoint
-android-listener/      Kotlin Android NotificationListenerService app
-bridge/                TypeScript HTTP to MQTT bridge
-custom_components/     Optional MQTT-backed Home Assistant integration
+mchslistener://setup?endpoint=http://192.168.1.20:8765/notification
 ```
 
-## Add-on Setup
-
-Build from the repository root:
+QR для deep link можно сделать так:
 
 ```bash
-docker build -f addon/Dockerfile .
+qrencode -o mchs-listener-setup.png 'mchslistener://setup?endpoint=http://192.168.1.20:8765/notification'
 ```
 
-For Home Assistant add-on installation, add this repository as a local/custom add-on repository and configure:
+11. Нажмите `Send test`.
+12. Проверьте сущности Home Assistant и добавьте свои автоматизации.
+
+## Что пользователь делает вручную
+
+- устанавливает официальное приложение `МЧС России`;
+- разрешает уведомления для приложения МЧС;
+- отключает энергосбережение для приложения МЧС и listener APK;
+- выдает listener APK доступ к уведомлениям;
+- выбирает регион в настройках add-on;
+- настраивает свои автоматизации.
+
+## Что происходит автоматически
+
+- listener находит приложение МЧС по известным package name и label;
+- listener отправляет уведомления в bridge и ставит последние 20 событий в очередь при недоступности bridge;
+- bridge классифицирует тревогу, отбой и unknown-события;
+- MQTT topics публикуются автоматически;
+- MQTT Discovery создает сущности Home Assistant;
+- `binary_sensor.mchs_alert` включается при тревоге и выключается при отбое;
+- unknown-уведомления не сбрасывают активную тревогу.
+
+## Add-on Config
 
 ```yaml
 mqtt_host: core-mosquitto
 mqtt_port: 1883
 mqtt_username: ""
 mqtt_password: ""
+mqtt_discovery: true
+discovery_prefix: homeassistant
+
 region: "Брянская область"
 regions:
   - "Брянская область"
-android_mode: "external"
+
+filter_by_region: true
+publish_unknown: true
+retain_state: true
+deduplicate_window_seconds: 30
+auto_clear_minutes: 0
+
 listener_http_port: 8765
+
 keywords:
   uav:
     - "беспилотная опасность"
-    - "БПЛА"
-    - "угроза атаки БПЛА"
+    - "бпла"
+    - "угроза атаки бпла"
+    - "опасность атаки бпла"
   missile:
     - "ракетная опасность"
     - "ракетная угроза"
@@ -66,72 +101,93 @@ keywords:
     - "отбой"
     - "опасность отменена"
     - "отмена опасности"
+    - "отбой беспилотной опасности"
+    - "отбой ракетной опасности"
 ```
 
-The add-on listens on `POST http://<home-assistant-host>:8765/notification`.
+`auto_clear_minutes: 0` означает, что тревога не сбрасывается автоматически.
 
 ## Android APK
 
-Build the APK from `android-listener/` with Android Studio or Gradle:
+Пользователю не нужно собирать APK вручную. CI собирает `mchs-alert-listener.apk` и публикует его как GitHub Actions artifact. Для релиза загрузите этот файл в GitHub Releases с именем:
+
+```text
+mchs-alert-listener.apk
+```
+
+Dev-сборка при необходимости:
 
 ```bash
 cd android-listener
 ./gradlew assembleDebug
 ```
 
-Install the APK on the Android device, emulator, or container that also has the "МЧС России" app installed.
+Listener автоматически ищет приложение МЧС среди пакетов:
 
-To find the actual package name:
+```text
+ru.mchs
+ru.mchs.app
+ru.mchs.mobile
+ru.mchs.informer
+```
+
+Также проверяется label приложения: `МЧС`, `МЧС России`, `MCHS`. Если найден один кандидат, он выбирается автоматически. Если найдено несколько, APK показывает список. Ручной package name оставлен как advanced-настройка.
+
+ADB-команда для отладки:
 
 ```bash
 adb shell pm list packages | grep -i mchs
 ```
 
-Open the listener app, set:
+## Bridge Endpoints
 
-- bridge URL, for example `http://192.168.1.10:8765/notification`;
-- MCHS package name found through ADB, default `ru.mchs.app`.
+```text
+GET  /health
+GET  /status
+POST /notification
+POST /test/uav
+POST /test/missile
+POST /test/air
+POST /test/cancel
+POST /test/unknown
+```
 
-Then tap "Open notification access" and grant notification access to `MCHS Alert Listener`. Use "Send test event" to verify the bridge path.
+Проверка:
 
-If the listener runs inside the same Android network namespace as the bridge, `http://127.0.0.1:8765/notification` can work. For a separate phone or emulator, use the Home Assistant host IP address.
+```bash
+curl -X POST http://127.0.0.1:8765/test/uav
+curl http://127.0.0.1:8765/status
+```
 
-## MQTT Topics
+## MQTT
 
-The bridge publishes:
+Topics:
 
 ```text
 mchs/alerts/state
 mchs/alerts/type
 mchs/alerts/region
 mchs/alerts/message
-mchs/alerts/raw
 mchs/alerts/last_seen
+mchs/alerts/last_event_type
+mchs/alerts/last_event_message
+mchs/alerts/last_event_seen
+mchs/alerts/listener_status
+mchs/alerts/bridge_status
+mchs/alerts/raw
 ```
 
-`mchs/alerts/state` is `ON` for alert events and `OFF` for cancellation or unknown events.
-
-Debug MQTT:
+Debug:
 
 ```bash
 mosquitto_sub -h core-mosquitto -t 'mchs/#' -v
 ```
 
-## Classification
-
-Default event rules:
-
-- `uav_alert`: `беспилотная опасность`, `БПЛА`, `угроза атаки БПЛА`
-- `missile_alert`: `ракетная опасность`, `ракетная угроза`
-- `air_alert`: `воздушная тревога`, `авиационная опасность`
-- `cancel_alert`: `отбой`, `отмена опасности`, `опасность отменена`
-- `unknown`: no keyword matched
-
-All keywords can be changed in add-on options.
+`mchs/alerts/bridge_status` используется как availability topic. Bridge публикует `online`, MQTT Last Will публикует `offline`.
 
 ## Home Assistant Entities
 
-MQTT discovery creates:
+MQTT Discovery создает:
 
 ```text
 binary_sensor.mchs_alert
@@ -139,39 +195,93 @@ sensor.mchs_alert_type
 sensor.mchs_alert_region
 sensor.mchs_alert_message
 sensor.mchs_alert_last_seen
+sensor.mchs_alert_last_event_type
+sensor.mchs_alert_last_event_message
+sensor.mchs_alert_last_event_seen
+sensor.mchs_alert_listener_status
+sensor.mchs_alert_bridge_status
 ```
 
-The optional `custom_components/mchs_alert` integration subscribes to the same MQTT topics. Use it only if you prefer explicit UI setup over MQTT discovery. A manual YAML alternative is documented in [custom_components/mchs_alert/README.md](/home/iceslam/PhpstormProjects/mchs-ha-addon/custom_components/mchs_alert/README.md).
+Custom integration `custom_components/mchs_alert` необязательна. Если `mqtt_discovery: true`, она обычно не нужна. Если хотите использовать integration, можно отключить discovery в add-on и указать `topic_prefix`, по умолчанию `mchs/alerts`.
 
-## Automation Example
+Manual YAML-вариант есть в [custom_components/mchs_alert/README.md](/home/iceslam/PhpstormProjects/mchs-ha-addon/custom_components/mchs_alert/README.md).
+
+## Примеры автоматизаций
+
+Persistent notification:
 
 ```yaml
-alias: МЧС — тревога БПЛА или ракетная опасность
+alias: МЧС — уведомление в Home Assistant
 trigger:
   - platform: state
     entity_id: binary_sensor.mchs_alert
     to: "on"
-condition: []
 action:
-  - service: notify.mobile_app_iphone
-    data:
-      title: "Опасность"
-      message: "{{ states('sensor.mchs_alert_message') }}"
   - service: persistent_notification.create
     data:
-      title: "МЧС"
+      title: "МЧС — тревога"
       message: "{{ states('sensor.mchs_alert_message') }}"
 mode: single
 ```
 
-## Test HTTP Event
+Сирена/реле:
 
-```bash
-curl -X POST http://127.0.0.1:8765/notification \
-  -H 'content-type: application/json' \
-  -d '{"source":"mchs_android_app","package":"ru.mchs.app","title":"МЧС России","text":"Беспилотная опасность объявлена на территории Брянской области","bigText":"Беспилотная опасность объявлена на территории Брянской области","timestamp":1710000000000}'
+```yaml
+alias: МЧС — включить сирену
+trigger:
+  - platform: state
+    entity_id: binary_sensor.mchs_alert
+    to: "on"
+action:
+  - service: switch.turn_on
+    target:
+      entity_id: switch.sirena
+mode: single
 ```
 
-## Privacy
+Отбой:
 
-The listener forwards notification fields to the configured bridge and does not persist notification content. The bridge publishes the raw event to MQTT for debugging, so keep MQTT access restricted.
+```yaml
+alias: МЧС — отбой
+trigger:
+  - platform: state
+    entity_id: binary_sensor.mchs_alert
+    to: "off"
+action:
+  - service: persistent_notification.create
+    data:
+      title: "МЧС — отбой"
+      message: "{{ states('sensor.mchs_alert_message') }}"
+mode: single
+```
+
+## Development
+
+Bridge:
+
+```bash
+cd addon/bridge
+npm ci
+npm run typecheck
+npm run test
+npm run build
+```
+
+Add-on Docker build from `addon/` context:
+
+```bash
+docker build -t mchs-alert-bridge:test addon
+```
+
+Android:
+
+```bash
+cd android-listener
+./gradlew assembleDebug
+```
+
+CI проверяет bridge и Android build в `.github/workflows/build.yml`.
+
+## Ограничения
+
+Это MVP, основанный на тексте push-уведомлений Android. Качество классификации зависит от текста уведомлений приложения МЧС и выбранного региона. Для надежных сценариев используйте несколько независимых источников оповещения.

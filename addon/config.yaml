@@ -2,7 +2,7 @@ name: MCHS Alert Bridge
 version: "0.1.0"
 slug: mchs_alert_bridge
 description: MQTT bridge for Android MCHS Russia notification alerts
-url: https://github.com/local/ha-mchs-alert
+url: https://github.com/IceSlam/ha-mchs-alert
 arch:
   - aarch64
   - amd64
@@ -21,16 +21,23 @@ options:
   mqtt_port: 1883
   mqtt_username: ""
   mqtt_password: ""
+  mqtt_discovery: true
+  discovery_prefix: homeassistant
   region: "Брянская область"
   regions:
     - "Брянская область"
-  android_mode: external
+  filter_by_region: true
+  publish_unknown: true
+  retain_state: true
+  deduplicate_window_seconds: 30
+  auto_clear_minutes: 0
   listener_http_port: 8765
   keywords:
     uav:
       - "беспилотная опасность"
-      - "БПЛА"
-      - "угроза атаки БПЛА"
+      - "бпла"
+      - "угроза атаки бпла"
+      - "опасность атаки бпла"
     missile:
       - "ракетная опасность"
       - "ракетная угроза"
@@ -41,15 +48,23 @@ options:
       - "отбой"
       - "опасность отменена"
       - "отмена опасности"
+      - "отбой беспилотной опасности"
+      - "отбой ракетной опасности"
 schema:
   mqtt_host: str
   mqtt_port: port
   mqtt_username: str?
   mqtt_password: password?
+  mqtt_discovery: bool
+  discovery_prefix: str
   region: str
   regions:
     - str
-  android_mode: list(external|redroid)?
+  filter_by_region: bool
+  publish_unknown: bool
+  retain_state: bool
+  deduplicate_window_seconds: int(0,)
+  auto_clear_minutes: int(0,)
   listener_http_port: port
   keywords:
     uav:

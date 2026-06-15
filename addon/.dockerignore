@@ -1,0 +1,5 @@
+.git
+.idea
+bridge/node_modules
+bridge/dist
+README.md

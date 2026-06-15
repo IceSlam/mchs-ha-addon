@@ -5,12 +5,12 @@ RUN apk add --no-cache nodejs npm
 
 WORKDIR /opt/mchs-alert-bridge
 COPY bridge/package.json bridge/package-lock.json* ./
-RUN npm install
+RUN npm ci
 COPY bridge/tsconfig.json ./
 COPY bridge/src ./src
 RUN npm run build && npm prune --omit=dev
 
-COPY addon/run.sh /run.sh
+COPY run.sh /run.sh
 RUN chmod +x /run.sh
 
 CMD ["/run.sh"]
