@@ -1,5 +1,5 @@
 name: MCHS Alert
-version: "0.3.1"
+version: "0.3.2"
 slug: mchs_alert_bridge
 description: Redroid Android, MQTT bridge, provisioning and health monitor for MCHS alerts
 url: https://github.com/IceSlam/ha-mchs-alert
@@ -19,6 +19,7 @@ panel_icon: mdi:android
 privileged:
   - SYS_ADMIN
   - NET_ADMIN
+  - DAC_READ_SEARCH
 ports:
   8765/tcp: 8765
   8099/tcp: 8099
