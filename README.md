@@ -1,8 +1,12 @@
-# ha-mchs-alert
+# mchs-ha-addon
 
-Home Assistant Supervised add-on for receiving MCHS Russia Android push notifications inside a local Redroid Android container and publishing alert state to MQTT/Home Assistant.
+Home Assistant add-on for running Android inside Redroid, installing a Notification Listener APK, receiving notifications from the official "МЧС России" Android app, and publishing alert state to Home Assistant through MQTT.
 
-New architecture:
+No separate Android smartphone is required.
+
+The project is not an official alerting channel. Use several independent sources for critical scenarios.
+
+## Architecture
 
 ```text
 Home Assistant Supervised
@@ -15,72 +19,143 @@ Home Assistant Supervised
 └── Redroid Android 13 Container
     ├── Google Play Services
     ├── МЧС России
-    └── Notification Listener
+    └── MCHS Notification Listener
 ```
 
-No external Android phone is required.
+The add-on does not intercept traffic, does not reverse engineer the MCHS app, does not bypass protection, and does not include the MCHS APK. It reads Android system notifications only through Android Notification Access.
 
-## Important Limits
+## Requirements
 
-This add-on manages a sibling `redroid/redroid` Docker container through the Home Assistant Supervised Docker API. The host must support Android binder/ashmem or binderfs. On Orange Pi 4 Pro / RK3399 this depends on the Debian kernel package and boot configuration.
+```text
+Home Assistant Supervised
+Debian host
+Docker
+ARM64 host, tested target: Orange Pi 4 Pro / RK3399
+Kernel with binder/binderfs support
+Mosquitto Broker
+```
 
-Google Play Services are not bundled by this project. Use a Redroid image that includes working GMS, or install a compatible GMS setup yourself. The Web UI reports `google_play_services: missing` if GMS is absent.
+Google Play Services / FCM are usually required for reliable push notifications. If GMS is missing, the Web UI shows:
 
-The project does not reverse engineer the MCHS app, intercept traffic, use private APIs, bypass protection, or modify the MCHS app. It reads Android system notifications through the official Notification Access permission.
+```text
+Google Play Services not detected. Push notifications may not work.
+```
 
-This project is not an official alerting channel. Use multiple confirmation sources for critical scenarios.
+Use an ARM64 Redroid image with GMS if your MCHS app build depends on FCM.
 
-## User Flow
+## Quick Install
 
-After installing the add-on, the user should only need to:
+1. Install Mosquitto Broker in Home Assistant.
+2. Add this repository as an add-on repository.
+3. Install `MCHS Alert`.
+4. Set `region`, for example `Брянская область`.
+5. Start the add-on.
+6. Open add-on Web UI.
+7. Upload the official MCHS APK obtained from a legal source.
+8. Click `Run Provisioning`.
+9. Open Android UI.
+10. In the MCHS app, select region and allow notifications.
+11. Grant Notification Access to `MCHS Alert Listener`.
+12. Click `Send test UAV alert`.
+13. Create Home Assistant automations.
 
-1. Install and start the add-on.
-2. Open add-on Web UI.
-3. Upload/install the official MCHS APK if it is not already present in the Redroid image.
-4. Open Android UI/controls and authorize the MCHS app.
-5. Grant Notification Access to `MCHS Alert Listener`.
-6. Select region in add-on config.
-7. Create Home Assistant automations.
+## Home Assistant Add-on Repository
 
-Everything else is handled by the add-on:
+The repository contains:
 
-- starts Redroid;
-- waits for ADB and Android boot;
-- installs listener APK from `addon/provisioning/apks/mchs-listener.apk`;
-- installs uploaded MCHS APK from Web UI;
-- opens Notification Listener settings;
-- monitors Redroid/ADB/listener/MQTT;
-- publishes MQTT Discovery entities.
+```text
+repository.yaml
+addon/config.yaml
+addon/Dockerfile
+addon/README.md
+addon/run.sh
+```
 
-## Add-on Config
+`repository.yaml`:
 
 ```yaml
-region: "Брянская область"
-redroid_image: "redroid/redroid:13.0.0-latest"
-redroid_container_name: "mchs-redroid"
-redroid_adb_port: 5555
-redroid_userdata: "/data/redroid"
-mqtt_discovery: true
-filter_by_region: true
+name: MCHS Alert Add-ons
+url: https://github.com/IceSlam/mchs-ha-addon
+maintainer: IceSlam
 ```
 
-Persistent Android data is mounted at `/data/redroid` for userdata, MCHS settings, FCM tokens and permissions.
+## Listener APK
+
+The listener APK is built by GitHub Actions and copied into:
+
+```text
+addon/provisioning/apks/mchs-listener.apk
+```
+
+Release/bundle artifacts contain the listener APK already embedded. If you use a source checkout without the bundled APK, upload `mchs-listener.apk` in the Web UI.
+
+Artifact path:
+
+```text
+Actions -> successful workflow -> Artifacts -> mchs-listener.apk
+```
+
+## MCHS APK
+
+The MCHS APK is not included. Obtain it yourself from a legal source and upload it in the add-on Web UI. The add-on installs it with ADB automatically.
+
+## Orange Pi 4 Pro Diagnostics
+
+Redroid requires binder devices or binderfs. The add-on checks this automatically and reports missing kernel support in logs and Web UI.
+
+Manual diagnostics:
+
+```bash
+ls /dev/binder
+ls /dev/vndbinder
+ls /dev/hwbinder
+mount | grep binder
+lsmod | grep binder
+ls /dev/ashmem
+```
+
+If binder/binderfs is unavailable:
+
+```text
+Redroid cannot start because binder/binderfs is not available on this host kernel.
+```
 
 ## Web UI
 
-Home Assistant -> MCHS Alert Add-on -> Open Web UI.
+The Web UI shows:
 
-The Web UI exposes:
+```text
+Bridge status
+MQTT status
+Redroid status
+Android boot status
+ADB status
+Listener APK status
+MCHS APK status
+GMS status
+Notification access status
+Last notification
+Last alert
+```
 
-- Redroid/ADB/GMS/listener status;
-- MCHS APK upload;
-- provisioning trigger;
-- Redroid restart;
-- open Android Notification Access settings.
+Buttons:
 
-Graphical Android access requires a scrcpy/noVNC-compatible backend for the host. The current MVP provides the management hooks and reports display backend status. On production images this should be wired to a host-compatible scrcpy-web/noVNC service.
+```text
+Start Android
+Restart Android
+Run Provisioning
+Upload MCHS APK
+Upload Listener APK
+Open Android UI
+Open Notification Access settings
+Open MCHS app
+Send test UAV alert
+Send test cancel alert
+```
 
-## MQTT Entities
+Android UI is exposed through the `/android` Web UI route. The built-in UI uses ADB screenshots plus browser tap/text controls, so the first setup can be completed without an external Android device. A low-latency scrcpy-web/noVNC backend can still be added later, but it is not required for the MVP flow.
+
+## MQTT Discovery
 
 MQTT Discovery creates:
 
@@ -89,55 +164,41 @@ binary_sensor.mchs_alert
 sensor.mchs_alert_type
 sensor.mchs_alert_region
 sensor.mchs_alert_message
+sensor.mchs_alert_last_seen
 sensor.mchs_android_status
 sensor.mchs_listener_status
 sensor.mchs_bridge_status
+sensor.mchs_mqtt_status
+sensor.mchs_gms_status
+sensor.mchs_provisioning_status
 ```
 
-Topics:
+System topics:
 
 ```text
-mchs/alerts/state
-mchs/alerts/type
-mchs/alerts/region
-mchs/alerts/message
 mchs/system/android
 mchs/system/listener
 mchs/system/bridge
+mchs/system/mqtt
+mchs/system/gms
+mchs/system/provisioning
 ```
 
-## Watchdog
+## Checks
 
-The health monitor checks:
-
-- Redroid container running;
-- ADB connected;
-- `sys.boot_completed=1`;
-- listener package installed;
-- MQTT publishing path.
-
-If Android is unhealthy, the watchdog restarts Redroid and runs provisioning again.
-
-## Listener APK
-
-The listener source remains in `android-listener/`, but it is no longer intended for a user phone. CI builds it as `mchs-alert-listener.apk`; place/release it as:
-
-```text
-addon/provisioning/apks/mchs-listener.apk
+```bash
+curl http://HOME_ASSISTANT_IP:8765/health
+curl http://HOME_ASSISTANT_IP:8765/status
+curl -X POST http://HOME_ASSISTANT_IP:8765/test/uav
+curl -X POST http://HOME_ASSISTANT_IP:8765/test/cancel
 ```
 
-Inside Redroid it posts to:
+## Automations
 
-```text
-http://127.0.0.1:8765/notification
-```
-
-Redroid runs with host networking so this endpoint reaches the add-on bridge.
-
-## Automation Example
+Notification:
 
 ```yaml
-alias: МЧС — тревога
+alias: МЧС — уведомление
 trigger:
   - platform: state
     entity_id: binary_sensor.mchs_alert
@@ -150,7 +211,74 @@ action:
 mode: single
 ```
 
-## Development Checks
+Siren:
+
+```yaml
+alias: МЧС — сирена
+trigger:
+  - platform: state
+    entity_id: binary_sensor.mchs_alert
+    to: "on"
+action:
+  - service: switch.turn_on
+    target:
+      entity_id: switch.sirena
+mode: single
+```
+
+Cancel:
+
+```yaml
+alias: МЧС — отбой
+trigger:
+  - platform: state
+    entity_id: binary_sensor.mchs_alert
+    to: "off"
+action:
+  - service: persistent_notification.create
+    data:
+      title: "МЧС — отбой"
+      message: "{{ states('sensor.mchs_alert_message') }}"
+mode: single
+```
+
+Night mode:
+
+```yaml
+alias: МЧС — ночной режим
+trigger:
+  - platform: state
+    entity_id: binary_sensor.mchs_alert
+    to: "on"
+condition:
+  - condition: time
+    after: "23:00:00"
+    before: "07:00:00"
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.bedroom
+    data:
+      brightness_pct: 25
+      color_name: red
+  - service: persistent_notification.create
+    data:
+      title: "МЧС — ночная тревога"
+      message: "{{ states('sensor.mchs_alert_message') }}"
+mode: single
+```
+
+## Custom Integration
+
+Custom integration is optional. Do not install it if MQTT Discovery is enabled.
+
+If you use `custom_components/mchs_alert`, set in add-on config:
+
+```yaml
+mqtt_discovery: false
+```
+
+## Development
 
 ```bash
 cd addon/bridge
@@ -161,7 +289,8 @@ npm run build
 ```
 
 ```bash
-docker build -t mchs-alert:addon addon
+bash addon/provisioning/tests/test_provisioning.sh
+docker build -t mchs-alert-addon:test addon
 ```
 
 ```bash

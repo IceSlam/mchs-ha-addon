@@ -18,6 +18,15 @@ start_redroid() {
     exit 2
   fi
 
+  local diagnostics
+  diagnostics="$(/opt/mchs-redroid/diagnostics.sh 2>/dev/null || echo '{"redroid_ready":false}')"
+  if [ "$(echo "$diagnostics" | jq -r '.redroid_ready')" != "true" ]; then
+    log "Redroid cannot start because binder/binderfs is not available on this host kernel: $diagnostics"
+    mkdir -p /data/status
+    echo "$diagnostics" > /data/status/kernel.json
+    exit 3
+  fi
+
   mkdir -p "$REDROID_USERDATA"
 
   if container_running; then
@@ -100,12 +109,15 @@ health() {
   adb_connect
   adb -s "$ADB_TARGET" get-state >/dev/null 2>&1 && adb_state="connected"
   boot="$(adb -s "$ADB_TARGET" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  local diagnostics
+  diagnostics="$(/opt/mchs-redroid/diagnostics.sh 2>/dev/null || echo '{}')"
   jq -n \
     --arg running "$running" \
     --arg adb "$adb_state" \
     --arg boot "${boot:-0}" \
     --arg target "$ADB_TARGET" \
-    '{redroid:$running, adb:$adb, boot_completed:$boot, adb_target:$target}'
+    --argjson kernel "$diagnostics" \
+    '{redroid:$running, adb:$adb, boot_completed:$boot, adb_target:$target, kernel:$kernel}'
 }
 
 case "$cmd" in
@@ -116,6 +128,7 @@ case "$cmd" in
   wait-adb) wait_adb "${2:-180}" ;;
   wait-boot) wait_boot "${2:-300}" ;;
   health) health ;;
+  diagnostics) /opt/mchs-redroid/diagnostics.sh ;;
   ip) docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$REDROID_NAME" ;;
   *) echo "usage: manager.sh ensure|start|stop|restart|wait-adb|wait-boot|health|ip" >&2; exit 64 ;;
 esac

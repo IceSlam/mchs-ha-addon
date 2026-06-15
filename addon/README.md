@@ -1,15 +1,15 @@
-# MCHS Alert Add-on
+# MCHS Alert
 
-This add-on runs:
+Runs a Redroid Android container inside Home Assistant Supervised, provisions the MCHS Notification Listener APK, installs an uploaded MCHS APK, and publishes notification-derived alert state through MQTT Discovery.
 
-- MQTT bridge;
-- Redroid Android manager;
-- APK provisioning;
-- setup Web UI;
-- health monitor/watchdog.
+Requirements:
 
-It is designed for Home Assistant Supervised on ARM64 hosts such as Orange Pi 4 Pro / RK3399 with Docker and a kernel that supports Redroid binder requirements.
+- Home Assistant Supervised on Debian;
+- Docker API access;
+- ARM64 host with Redroid-compatible binder/binderfs kernel support;
+- Mosquitto Broker;
+- legal MCHS APK supplied by the user.
 
-The add-on requires `docker_api: true` because it starts a sibling `redroid/redroid` container. Android userdata is persisted at `/data/redroid`.
+Open the Web UI after start. It shows Redroid, ADB, GMS, listener, MCHS and provisioning status, and provides APK upload and provisioning buttons.
 
-Open the add-on Web UI to upload the MCHS APK, run provisioning, open Notification Access settings and check Redroid/ADB/listener status.
+The MCHS APK is not bundled. The listener APK is bundled in release artifacts as `addon/provisioning/apks/mchs-listener.apk`; if it is missing, upload it in Web UI.

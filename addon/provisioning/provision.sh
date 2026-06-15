@@ -2,9 +2,47 @@
 set -euo pipefail
 . /opt/mchs-redroid/common.sh
 
-LISTENER_APK="/opt/mchs-provisioning/apks/mchs-listener.apk"
-MCHS_APK="/data/uploads/mchs.apk"
+BUNDLED_LISTENER_APK="/opt/mchs-provisioning/apks/mchs-listener.apk"
+UPLOADED_LISTENER_APK="/data/uploads/mchs-listener.apk"
+MCHS_APK="$(opt mchs_apk_path /data/uploads/mchs.apk)"
 LISTENER_PACKAGE="dev.mchsha.listener"
+STATUS_DIR="/data/status"
+STATUS_FILE="${STATUS_DIR}/provisioning.json"
+
+mkdir -p "$STATUS_DIR"
+
+json_array() {
+  jq -R -s 'split("\n") | map(select(length > 0))'
+}
+
+write_status() {
+  local status="$1"
+  local message="$2"
+  local listener_apk="${3:-}"
+  local listener_status="${4:-unknown}"
+  local mchs_package="${5:-}"
+  local gms="${6:-unknown}"
+  local notification_access="${7:-unknown}"
+  jq -n \
+    --arg status "$status" \
+    --arg message "$message" \
+    --arg listener_apk "$listener_apk" \
+    --arg listener "$listener_status" \
+    --arg mchs "$mchs_package" \
+    --arg gms "$gms" \
+    --arg notification_access "$notification_access" \
+    --arg time "$(date -Iseconds)" \
+    '{
+      status: $status,
+      message: $message,
+      listener_apk: $listener_apk,
+      listener: $listener,
+      mchs_package: $mchs,
+      google_play_services: $gms,
+      notification_access: $notification_access,
+      updated_at: $time
+    }' > "$STATUS_FILE"
+}
 
 pkg_installed() {
   adb -s "$ADB_TARGET" shell pm path "$1" >/dev/null 2>&1
@@ -12,11 +50,16 @@ pkg_installed() {
 
 install_apk() {
   local apk="$1"
-  if [ ! -f "$apk" ]; then
-    return 1
-  fi
   log "installing $(basename "$apk")"
   adb -s "$ADB_TARGET" install -r "$apk" >/dev/null
+}
+
+listener_apk_path() {
+  if [ -f "$BUNDLED_LISTENER_APK" ]; then
+    echo "$BUNDLED_LISTENER_APK"
+  elif [ -f "$UPLOADED_LISTENER_APK" ]; then
+    echo "$UPLOADED_LISTENER_APK"
+  fi
 }
 
 grant_common_permissions() {
@@ -31,24 +74,38 @@ grant_common_permissions() {
 }
 
 check_gms() {
-  if pkg_installed com.google.android.gms; then
-    echo "present"
+  if pkg_installed com.google.android.gms; then echo "present"; else echo "missing"; fi
+}
+
+notification_access_status() {
+  local enabled
+  enabled="$(adb -s "$ADB_TARGET" shell settings get secure enabled_notification_listeners 2>/dev/null | tr -d '\r' || true)"
+  if echo "$enabled" | grep -q "$LISTENER_PACKAGE"; then
+    echo "enabled"
   else
-    echo "missing"
+    echo "not_enabled"
   fi
 }
 
 find_mchs_package() {
+  local packages labels pkg
+  packages="$(adb -s "$ADB_TARGET" shell pm list packages 2>/dev/null | tr -d '\r' | sed 's/^package://')"
   if [ -f "$OPTIONS_FILE" ]; then
-    jq -r '.mchs_package_candidates[]?' "$OPTIONS_FILE"
-  else
-    printf '%s\n' ru.mchs ru.mchs.app ru.mchs.mobile ru.mchs.informer
-  fi | while read -r pkg; do
-    if pkg_installed "$pkg"; then
+    while read -r pkg; do
+      if echo "$packages" | grep -qx "$pkg"; then
+        echo "$pkg"
+        return 0
+      fi
+    done < <(jq -r '.mchs_package_candidates[]?' "$OPTIONS_FILE")
+  fi
+  while read -r pkg; do
+    labels="$(adb -s "$ADB_TARGET" shell dumpsys package "$pkg" 2>/dev/null | tr -d '\r' || true)"
+    if echo "$pkg $labels" | grep -Eiq 'mchs|мчс'; then
       echo "$pkg"
-      break
+      return 0
     fi
-  done
+  done <<< "$packages"
+  return 1
 }
 
 open_notification_access() {
@@ -56,26 +113,44 @@ open_notification_access() {
 }
 
 main() {
+  write_status "running" "waiting for Android boot"
   /opt/mchs-redroid/manager.sh wait-boot 300
-  local gms
+
+  local gms listener_apk mchs_pkg notification_status
   gms="$(check_gms)"
   if [ "$gms" = "missing" ]; then
-    log "Google Play Services missing; user must use a Redroid image with GMS or install GMS-compatible image"
+    log "Google Play Services not detected. Push notifications may not work."
   fi
 
-  if [ -f "$LISTENER_APK" ]; then
-    install_apk "$LISTENER_APK"
-    grant_common_permissions "$LISTENER_PACKAGE"
-  else
-    log "listener APK not found at $LISTENER_APK"
+  listener_apk="$(listener_apk_path || true)"
+  if [ -z "$listener_apk" ]; then
+    local message="Listener APK not found. Upload it in Web UI or use bundled release."
+    log "$message"
+    write_status "error" "$message" "" "missing" "" "$gms" "unknown"
+    exit 10
   fi
+
+  install_apk "$listener_apk"
+  grant_common_permissions "$LISTENER_PACKAGE"
 
   if [ -f "$MCHS_APK" ]; then
     install_apk "$MCHS_APK"
+  else
+    log "MCHS APK not uploaded; skipping MCHS install"
   fi
 
-  local mchs_pkg
+  adb -s "$ADB_TARGET" shell pm list packages >/data/status/packages.txt 2>/dev/null || true
+
+  if pkg_installed "$LISTENER_PACKAGE"; then
+    listener_status="installed"
+  else
+    listener_status="missing"
+  fi
+
   mchs_pkg="$(find_mchs_package || true)"
+  notification_status="$(notification_access_status)"
+
+  open_notification_access
   if [ -n "$mchs_pkg" ]; then
     log "MCHS package detected: $mchs_pkg"
     adb -s "$ADB_TARGET" shell monkey -p "$mchs_pkg" 1 >/dev/null 2>&1 || true
@@ -83,7 +158,7 @@ main() {
     log "MCHS package not installed yet"
   fi
 
-  open_notification_access
+  write_status "ok" "provisioning completed" "$listener_apk" "$listener_status" "$mchs_pkg" "$gms" "$notification_status"
 }
 
 main "$@"

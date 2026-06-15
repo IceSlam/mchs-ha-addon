@@ -33,9 +33,14 @@ while true; do
 
   listener="missing"
   mchs="missing"
+  gms="missing"
+  provisioning="unknown"
   adb_connect
   if adb -s "$ADB_TARGET" shell pm path dev.mchsha.listener >/dev/null 2>&1; then
     listener="installed"
+  fi
+  if adb -s "$ADB_TARGET" shell pm path com.google.android.gms >/dev/null 2>&1; then
+    gms="present"
   fi
   if [ -f "$OPTIONS_FILE" ]; then
     while read -r pkg; do
@@ -47,9 +52,15 @@ while true; do
   fi
 
   android_status="$redroid/adb:$adb_state/boot:$boot"
+  if [ -f /data/status/provisioning.json ]; then
+    provisioning="$(jq -r '.status // "unknown"' /data/status/provisioning.json 2>/dev/null || echo unknown)"
+  fi
   publish "mchs/system/android" "$android_status"
   publish "mchs/system/listener" "$listener"
   publish "mchs/system/bridge" "online"
+  publish "mchs/system/mqtt" "online"
+  publish "mchs/system/gms" "$gms"
+  publish "mchs/system/provisioning" "$provisioning"
   publish "mchs/alerts/listener_status" "$listener"
 
   if [ "$redroid" != "running" ] || [ "$adb_state" != "connected" ] || [ "$boot" != "1" ]; then

@@ -8,9 +8,13 @@ import os
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 UPLOAD_DIR = Path("/data/uploads")
+STATUS_DIR = Path("/data/status")
 MCHS_APK = UPLOAD_DIR / "mchs.apk"
+LISTENER_APK = UPLOAD_DIR / "mchs-listener.apk"
+BUNDLED_LISTENER_APK = Path("/opt/mchs-provisioning/apks/mchs-listener.apk")
 
 
 def run(cmd: list[str], timeout: int = 20) -> tuple[int, str]:
@@ -21,9 +25,41 @@ def run(cmd: list[str], timeout: int = 20) -> tuple[int, str]:
         return 1, str(exc)
 
 
+def read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def package_present(package_name: str) -> bool:
+    return run(["adb", "-s", "127.0.0.1:5555", "shell", "pm", "path", package_name], timeout=5)[0] == 0
+
+
+def notification_access() -> str:
+    code, out = run(["adb", "-s", "127.0.0.1:5555", "shell", "settings", "get", "secure", "enabled_notification_listeners"], timeout=5)
+    if code != 0:
+        return "unknown"
+    return "enabled" if "dev.mchsha.listener" in out else "not_enabled"
+
+
+def mchs_package() -> str:
+    for pkg in ["ru.mchs", "ru.mchs.app", "ru.mchs.mobile", "ru.mchs.informer"]:
+        if package_present(pkg):
+            return pkg
+    return ""
+
+
+def android_ui_status() -> str:
+    if os.environ.get("ANDROID_UI_URL"):
+        return os.environ["ANDROID_UI_URL"]
+    return "adb_screenshot_control"
+
+
 def status() -> dict:
     code, out = run(["/opt/mchs-redroid/manager.sh", "health"], timeout=10)
-    redroid = {}
     if code == 0:
         try:
             redroid = json.loads(out)
@@ -32,57 +68,180 @@ def status() -> dict:
     else:
         redroid = {"error": out}
 
-    gms = run(["adb", "-s", "127.0.0.1:5555", "shell", "pm", "path", "com.google.android.gms"], timeout=5)[0] == 0
-    listener = run(["adb", "-s", "127.0.0.1:5555", "shell", "pm", "path", "dev.mchsha.listener"], timeout=5)[0] == 0
+    provisioning = read_json(STATUS_DIR / "provisioning.json")
     return {
+        "bridge": http_json("http://127.0.0.1:8765/status"),
         "redroid": redroid,
-        "google_play_services": "present" if gms else "missing",
-        "listener": "installed" if listener else "missing",
-        "uploaded_mchs_apk": MCHS_APK.exists(),
-        "android_display": "not_configured"
+        "adb": redroid.get("adb", "unknown"),
+        "android_boot": redroid.get("boot_completed", "0"),
+        "kernel": redroid.get("kernel", read_json(STATUS_DIR / "kernel.json")),
+        "google_play_services": "present" if package_present("com.google.android.gms") else "missing",
+        "listener_apk": "bundled" if BUNDLED_LISTENER_APK.exists() else ("uploaded" if LISTENER_APK.exists() else "missing"),
+        "listener": "installed" if package_present("dev.mchsha.listener") else "missing",
+        "mchs_apk_uploaded": MCHS_APK.exists(),
+        "mchs_package": mchs_package() or "missing",
+        "notification_access": notification_access(),
+        "provisioning": provisioning,
+        "android_ui": android_ui_status(),
+        "last_notification": read_json(STATUS_DIR / "last_notification.json"),
+        "last_alert": http_json("http://127.0.0.1:8765/status")
     }
+
+
+def http_json(url: str) -> dict:
+    code, out = run(["curl", "-fsS", url], timeout=5)
+    if code != 0:
+        return {"status": "unavailable", "error": out}
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return {"raw": out}
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path == "/status.json":
+        path = urlparse(self.path).path
+        if path == "/status.json":
             self.send_json(status())
+            return
+        if path == "/android":
+            self.send_html(self.android_ui_page())
+            return
+        if path == "/android/screenshot.png":
+            self.android_screenshot()
             return
         self.send_html(self.render())
 
     def do_POST(self) -> None:
-        if self.path == "/upload-mchs":
-            self.upload_mchs()
+        path = urlparse(self.path).path
+        routes = {
+            "/start-redroid": (["/opt/mchs-redroid/manager.sh", "start"], 60),
+            "/restart-redroid": (["/opt/mchs-redroid/manager.sh", "restart"], 360),
+            "/provision": (["/opt/mchs-provisioning/provision.sh"], 300),
+            "/open-notification-access": (["adb", "-s", "127.0.0.1:5555", "shell", "am", "start", "-a", "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"], 20),
+            "/open-mchs": (["sh", "-c", "pkg=$(cat /data/status/provisioning.json 2>/dev/null | jq -r '.mchs_package // empty'); [ -n \"$pkg\" ] && adb -s 127.0.0.1:5555 shell monkey -p \"$pkg\" 1"], 20),
+            "/test-uav": (["curl", "-fsS", "-X", "POST", "http://127.0.0.1:8765/test/uav"], 10),
+            "/test-cancel": (["curl", "-fsS", "-X", "POST", "http://127.0.0.1:8765/test/cancel"], 10),
+        }
+        if path == "/upload-mchs":
+            self.upload_apk(MCHS_APK)
             return
-        if self.path == "/provision":
-            self.command(["/opt/mchs-provisioning/provision.sh"], timeout=300)
+        if path == "/upload-listener":
+            self.upload_apk(LISTENER_APK)
             return
-        if self.path == "/restart-redroid":
-            self.command(["/opt/mchs-redroid/manager.sh", "restart"], timeout=360)
+        if path == "/android/tap":
+            self.android_tap()
             return
-        if self.path == "/open-notification-access":
-            self.command(["adb", "-s", "127.0.0.1:5555", "shell", "am", "start", "-a", "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"])
+        if path == "/android/text":
+            self.android_text()
+            return
+        if path == "/android/key/back":
+            self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "4"], timeout=10)
+            return
+        if path == "/android/key/home":
+            self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "3"], timeout=10)
+            return
+        if path in routes:
+            cmd, timeout = routes[path]
+            self.command(cmd, timeout=timeout)
             return
         self.send_error(404)
 
-    def upload_mchs(self) -> None:
+    def upload_apk(self, target: Path) -> None:
         ctype, pdict = cgi.parse_header(self.headers.get("content-type", ""))
         if ctype != "multipart/form-data":
             self.send_error(400, "multipart/form-data required")
             return
-        pdict["boundary"] = bytes(pdict["boundary"], "utf-8")
         form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={"REQUEST_METHOD": "POST"})
         item = form["apk"] if "apk" in form else None
         if item is None or not item.file:
             self.send_error(400, "apk file required")
             return
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        MCHS_APK.write_bytes(item.file.read())
+        target.write_bytes(item.file.read())
         self.redirect("/")
 
     def command(self, cmd: list[str], timeout: int = 60) -> None:
         code, out = run(cmd, timeout=timeout)
         self.send_html(f"<pre>{html.escape(out)}</pre><p>Exit code: {code}</p><p><a href='/'>Back</a></p>")
+
+    def android_ui_page(self) -> str:
+        return """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Android UI</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    #screen { max-width: 420px; width: 100%; border: 1px solid #999; touch-action: manipulation; }
+    button { margin: 4px; padding: 8px 12px; }
+    input { padding: 8px; min-width: 280px; }
+  </style>
+</head>
+<body>
+  <h1>Android UI</h1>
+  <p>Click the screenshot to tap Android. Use Refresh after each action.</p>
+  <p>
+    <button onclick="refresh()">Refresh</button>
+    <button onclick="post('/android/key/back')">Back</button>
+    <button onclick="post('/android/key/home')">Home</button>
+  </p>
+  <p>
+    <input id="text" placeholder="Text input">
+    <button onclick="sendText()">Send text</button>
+  </p>
+  <img id="screen" src="/android/screenshot.png?ts=0" onclick="tap(event)">
+  <p><a href="/">Back to add-on UI</a></p>
+  <script>
+    function refresh() {
+      document.getElementById('screen').src = '/android/screenshot.png?ts=' + Date.now();
+    }
+    async function post(url, body) {
+      await fetch(url, {method: 'POST', headers: {'content-type': 'application/json'}, body: body ? JSON.stringify(body) : '{}'});
+      setTimeout(refresh, 500);
+    }
+    function tap(ev) {
+      const img = ev.currentTarget;
+      const rect = img.getBoundingClientRect();
+      const x = Math.round((ev.clientX - rect.left) * img.naturalWidth / rect.width);
+      const y = Math.round((ev.clientY - rect.top) * img.naturalHeight / rect.height);
+      post('/android/tap', {x, y});
+    }
+    function sendText() {
+      post('/android/text', {text: document.getElementById('text').value});
+    }
+  </script>
+</body>
+</html>"""
+
+    def android_screenshot(self) -> None:
+        proc = subprocess.run(["adb", "-s", "127.0.0.1:5555", "exec-out", "screencap", "-p"], capture_output=True, timeout=10)
+        if proc.returncode != 0:
+            self.send_error(503, proc.stderr.decode(errors="ignore"))
+            return
+        self.send_response(200)
+        self.send_header("content-type", "image/png")
+        self.send_header("cache-control", "no-store")
+        self.send_header("content-length", str(len(proc.stdout)))
+        self.end_headers()
+        self.wfile.write(proc.stdout)
+
+    def read_json_body(self) -> dict:
+        length = int(self.headers.get("content-length", "0"))
+        if length <= 0:
+            return {}
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def android_tap(self) -> None:
+        body = self.read_json_body()
+        x = str(int(body.get("x", 0)))
+        y = str(int(body.get("y", 0)))
+        self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", x, y], timeout=10)
+
+    def android_text(self) -> None:
+        body = self.read_json_body()
+        text = str(body.get("text", "")).replace(" ", "%s")
+        self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "text", text], timeout=10)
 
     def render(self) -> str:
         data = status()
@@ -92,22 +251,34 @@ class Handler(BaseHTTPRequestHandler):
   <meta charset="utf-8">
   <title>MCHS Alert</title>
   <style>
-    body {{ font-family: system-ui, sans-serif; margin: 24px; max-width: 960px; }}
-    code, pre {{ background: #f4f4f4; padding: 8px; display: block; overflow: auto; }}
-    button {{ margin: 4px 8px 4px 0; padding: 8px 12px; }}
+    body {{ font-family: system-ui, sans-serif; margin: 24px; max-width: 1100px; }}
+    pre {{ background: #f4f4f4; padding: 12px; overflow: auto; }}
+    form {{ display: inline-block; margin: 4px 8px 4px 0; }}
+    button {{ padding: 8px 12px; }}
+    .warn {{ color: #8a4b00; }}
   </style>
 </head>
 <body>
   <h1>MCHS Alert Add-on</h1>
-  <p>This UI manages Redroid provisioning. Android graphical access requires a scrcpy/noVNC backend compatible with the host kernel and is reported below.</p>
+  <p class="warn">Google Play Services status: {html.escape(data["google_play_services"])}. Push notifications may not work without GMS/FCM.</p>
+  <p><a href="/android">Open Android UI</a> (ADB screenshot/tap/text browser control)</p>
   <pre>{html.escape(json.dumps(data, ensure_ascii=False, indent=2))}</pre>
-  <form method="post" action="/restart-redroid"><button>Restart Redroid</button></form>
+  <form method="post" action="/start-redroid"><button>Start Android</button></form>
+  <form method="post" action="/restart-redroid"><button>Restart Android</button></form>
   <form method="post" action="/provision"><button>Run Provisioning</button></form>
-  <form method="post" action="/open-notification-access"><button>Open Notification Access in Android</button></form>
-  <h2>Install MCHS APK</h2>
+  <form method="post" action="/open-notification-access"><button>Open Notification Access settings</button></form>
+  <form method="post" action="/open-mchs"><button>Open MCHS app</button></form>
+  <form method="post" action="/test-uav"><button>Send test UAV alert</button></form>
+  <form method="post" action="/test-cancel"><button>Send test cancel alert</button></form>
+
+  <h2>Upload APKs</h2>
   <form method="post" action="/upload-mchs" enctype="multipart/form-data">
-    <input type="file" name="apk" accept=".apk">
-    <button>Upload APK</button>
+    <label>MCHS APK <input type="file" name="apk" accept=".apk"></label>
+    <button>Upload MCHS APK</button>
+  </form>
+  <form method="post" action="/upload-listener" enctype="multipart/form-data">
+    <label>Listener APK <input type="file" name="apk" accept=".apk"></label>
+    <button>Upload Listener APK</button>
   </form>
 </body>
 </html>"""

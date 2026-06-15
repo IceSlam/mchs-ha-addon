@@ -86,7 +86,10 @@ export class MqttPublisher {
       sensorConfig(this.config, "mchs_alert_bridge_status", "MCHS Alert Bridge Status", `${BASE_TOPIC}/bridge_status`, device, availability),
       sensorConfig(this.config, "mchs_android_status", "MCHS Android Status", "mchs/system/android", device, availability),
       sensorConfig(this.config, "mchs_listener_status", "MCHS Listener Status", "mchs/system/listener", device, availability),
-      sensorConfig(this.config, "mchs_bridge_status", "MCHS Bridge Status", "mchs/system/bridge", device, availability)
+      sensorConfig(this.config, "mchs_bridge_status", "MCHS Bridge Status", "mchs/system/bridge", device, availability),
+      sensorConfig(this.config, "mchs_mqtt_status", "MCHS MQTT Status", "mchs/system/mqtt", device, availability),
+      sensorConfig(this.config, "mchs_gms_status", "MCHS GMS Status", "mchs/system/gms", device, availability),
+      sensorConfig(this.config, "mchs_provisioning_status", "MCHS Provisioning Status", "mchs/system/provisioning", device, availability)
     ];
 
     await Promise.all(configs.map((item) => this.publish(item.topic, JSON.stringify(item.payload), true)));

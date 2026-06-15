@@ -4,6 +4,8 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   bridge:
@@ -23,6 +25,7 @@ jobs:
         working-directory: addon/bridge
       - run: npm run build
         working-directory: addon/bridge
+      - run: bash addon/provisioning/tests/test_provisioning.sh
 
   android:
     runs-on: ubuntu-latest
@@ -34,11 +37,36 @@ jobs:
           java-version: 17
       - uses: android-actions/setup-android@v3
       - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - run: ./gradlew assembleDebug
+      - run: ./gradlew clean assembleDebug
         working-directory: android-listener
-      - run: mkdir -p ../releases && cp app/build/outputs/apk/debug/app-debug.apk ../releases/mchs-listener.apk
-        working-directory: android-listener
+      - run: mkdir -p releases addon/provisioning/apks && cp android-listener/app/build/outputs/apk/debug/app-debug.apk releases/mchs-listener.apk && cp releases/mchs-listener.apk addon/provisioning/apks/mchs-listener.apk
+      - run: test -f addon/provisioning/apks/mchs-listener.apk
       - uses: actions/upload-artifact@v4
         with:
           name: mchs-listener.apk
           path: releases/mchs-listener.apk
+
+  bundle:
+    runs-on: ubuntu-latest
+    needs: [bridge, android]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mchs-listener.apk
+          path: /tmp/mchs-listener
+      - run: mkdir -p addon/provisioning/apks && cp /tmp/mchs-listener/mchs-listener.apk addon/provisioning/apks/mchs-listener.apk
+      - run: test -f repository.yaml && test -f addon/config.yaml && test -f addon/provisioning/apks/mchs-listener.apk
+      - run: docker build -t mchs-alert-addon:test addon
+      - run: zip -r mchs-ha-addon-bundle.zip repository.yaml addon README.md custom_components .github -x "*/node_modules/*" "*/dist/*" "*/.gradle/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mchs-ha-addon-bundle.zip
+          path: mchs-ha-addon-bundle.zip
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mchs-ha-addon-bundle.zip
+            /tmp/mchs-listener/mchs-listener.apk
