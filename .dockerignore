@@ -1,0 +1,8 @@
+.git
+.idea
+bridge/node_modules
+bridge/dist
+android-listener/.gradle
+android-listener/**/build
+*.apk
+*.aab

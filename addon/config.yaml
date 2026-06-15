@@ -1,0 +1,62 @@
+name: MCHS Alert Bridge
+version: "0.1.0"
+slug: mchs_alert_bridge
+description: MQTT bridge for Android MCHS Russia notification alerts
+url: https://github.com/local/ha-mchs-alert
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: services
+boot: auto
+init: false
+ports:
+  8765/tcp: 8765
+ports_description:
+  8765/tcp: Android listener HTTP endpoint
+options:
+  mqtt_host: core-mosquitto
+  mqtt_port: 1883
+  mqtt_username: ""
+  mqtt_password: ""
+  region: "Брянская область"
+  regions:
+    - "Брянская область"
+  android_mode: external
+  listener_http_port: 8765
+  keywords:
+    uav:
+      - "беспилотная опасность"
+      - "БПЛА"
+      - "угроза атаки БПЛА"
+    missile:
+      - "ракетная опасность"
+      - "ракетная угроза"
+    air:
+      - "воздушная тревога"
+      - "авиационная опасность"
+    cancel:
+      - "отбой"
+      - "опасность отменена"
+      - "отмена опасности"
+schema:
+  mqtt_host: str
+  mqtt_port: port
+  mqtt_username: str?
+  mqtt_password: password?
+  region: str
+  regions:
+    - str
+  android_mode: list(external|redroid)?
+  listener_http_port: port
+  keywords:
+    uav:
+      - str
+    missile:
+      - str
+    air:
+      - str
+    cancel:
+      - str
