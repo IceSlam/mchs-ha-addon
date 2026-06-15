@@ -58,6 +58,33 @@ def android_ui_status() -> str:
     return "adb_screenshot_control"
 
 
+def android_ui_status_payload() -> dict:
+    data = status()
+    backend = android_ui_status()
+    boot_completed = str(data.get("android_boot", "0")) == "1"
+    adb = data.get("adb", "unknown")
+    redroid = data.get("redroid", {}).get("redroid", "unknown") if isinstance(data.get("redroid"), dict) else "unknown"
+    if backend.startswith("http://") or backend.startswith("https://"):
+        return {
+            "available": True,
+            "backend": "external",
+            "url": backend,
+            "redroid": redroid,
+            "adb": adb,
+            "boot_completed": boot_completed,
+            "message": "External Android UI backend configured"
+        }
+    return {
+        "available": adb == "connected" and boot_completed,
+        "backend": "adb_screenshot_control",
+        "url": "android-ui",
+        "redroid": redroid,
+        "adb": adb,
+        "boot_completed": boot_completed,
+        "message": "Built-in ADB screenshot/tap Android UI"
+    }
+
+
 def status() -> dict:
     code, out = run(["/opt/mchs-redroid/manager.sh", "health"], timeout=10)
     if code == 0:
@@ -104,10 +131,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/status.json":
             self.send_json(status())
             return
-        if path == "/android":
+        if path == "/api/android-ui/status":
+            self.send_json(android_ui_status_payload())
+            return
+        if path in ("/android", "/android-ui"):
             self.send_html(self.android_ui_page())
             return
-        if path == "/android/screenshot.png":
+        if path in ("/android/screenshot.png", "/android-ui/screenshot.png"):
             self.android_screenshot()
             return
         self.send_html(self.render())
@@ -129,16 +159,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/upload-listener":
             self.upload_apk(LISTENER_APK)
             return
-        if path == "/android/tap":
+        if path in ("/android/tap", "/android-ui/tap"):
             self.android_tap()
             return
-        if path == "/android/text":
+        if path in ("/android/text", "/android-ui/text"):
             self.android_text()
             return
-        if path == "/android/key/back":
+        if path in ("/android/key/back", "/android-ui/key/back"):
             self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "4"], timeout=10)
             return
-        if path == "/android/key/home":
+        if path in ("/android/key/home", "/android-ui/key/home"):
             self.command(["adb", "-s", "127.0.0.1:5555", "shell", "input", "keyevent", "3"], timeout=10)
             return
         if path in routes:
@@ -159,57 +189,79 @@ class Handler(BaseHTTPRequestHandler):
             return
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         target.write_bytes(item.file.read())
-        self.redirect("/")
+        self.redirect(".")
 
     def command(self, cmd: list[str], timeout: int = 60) -> None:
         code, out = run(cmd, timeout=timeout)
-        self.send_html(f"<pre>{html.escape(out)}</pre><p>Exit code: {code}</p><p><a href='/'>Back</a></p>")
+        self.send_html(f"<pre>{html.escape(out)}</pre><p>Exit code: {code}</p><p><a href='.'>Back</a></p>")
 
     def android_ui_page(self) -> str:
-        return """<!doctype html>
+        payload = android_ui_status_payload()
+        if payload["backend"] == "external":
+            url = html.escape(payload["url"])
+            return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Android UI</title></head>
+<body>
+  <h1>Android UI</h1>
+  <iframe src="{url}" style="width:100%;height:90vh;border:0"></iframe>
+  <p><a href=".">Back to add-on UI</a></p>
+</body></html>"""
+
+        data = status()
+        disabled = "" if payload["available"] else "disabled"
+        diagnostics = html.escape(json.dumps({"redroid": data.get("redroid"), "provisioning": data.get("provisioning")}, ensure_ascii=False, indent=2))
+        return f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Android UI</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; }
-    #screen { max-width: 420px; width: 100%; border: 1px solid #999; touch-action: manipulation; }
-    button { margin: 4px; padding: 8px 12px; }
-    input { padding: 8px; min-width: 280px; }
+    body {{ font-family: system-ui, sans-serif; margin: 16px; }}
+    #screen {{ max-width: 420px; width: 100%; border: 1px solid #999; touch-action: manipulation; }}
+    button {{ margin: 4px; padding: 8px 12px; }}
+    input {{ padding: 8px; min-width: 280px; }}
   </style>
 </head>
 <body>
   <h1>Android UI</h1>
   <p>Click the screenshot to tap Android. Use Refresh after each action.</p>
+  <pre>{html.escape(json.dumps(payload, ensure_ascii=False, indent=2))}</pre>
+  <pre>{diagnostics}</pre>
   <p>
-    <button onclick="refresh()">Refresh</button>
-    <button onclick="post('/android/key/back')">Back</button>
-    <button onclick="post('/android/key/home')">Home</button>
+    <button onclick="refresh()">Refresh status</button>
+    <button onclick="post('android-ui/key/back')" {disabled}>Back</button>
+    <button onclick="post('android-ui/key/home')" {disabled}>Home</button>
   </p>
   <p>
     <input id="text" placeholder="Text input">
-    <button onclick="sendText()">Send text</button>
+    <button onclick="sendText()" {disabled}>Send text</button>
   </p>
-  <img id="screen" src="/android/screenshot.png?ts=0" onclick="tap(event)">
-  <p><a href="/">Back to add-on UI</a></p>
+  <p>
+    <form method="post" action="restart-redroid"><button>Restart Redroid</button></form>
+    <form method="post" action="open-notification-access"><button>Open Notification Access settings via ADB</button></form>
+    <form method="post" action="open-mchs"><button>Open MCHS app via ADB</button></form>
+    <form method="post" action="provision"><button>Run Provisioning</button></form>
+  </p>
+  <img id="screen" src="android-ui/screenshot.png?ts=0" onclick="tap(event)" alt="Android screenshot">
+  <p><a href=".">Back to add-on UI</a></p>
   <script>
-    function refresh() {
-      document.getElementById('screen').src = '/android/screenshot.png?ts=' + Date.now();
-    }
-    async function post(url, body) {
-      await fetch(url, {method: 'POST', headers: {'content-type': 'application/json'}, body: body ? JSON.stringify(body) : '{}'});
+    function refresh() {{
+      document.getElementById('screen').src = 'android-ui/screenshot.png?ts=' + Date.now();
+    }}
+    async function post(url, body) {{
+      await fetch(url, {{method: 'POST', headers: {{'content-type': 'application/json'}}, body: body ? JSON.stringify(body) : '{{}}'}});
       setTimeout(refresh, 500);
-    }
-    function tap(ev) {
+    }}
+    function tap(ev) {{
       const img = ev.currentTarget;
       const rect = img.getBoundingClientRect();
       const x = Math.round((ev.clientX - rect.left) * img.naturalWidth / rect.width);
       const y = Math.round((ev.clientY - rect.top) * img.naturalHeight / rect.height);
-      post('/android/tap', {x, y});
-    }
-    function sendText() {
-      post('/android/text', {text: document.getElementById('text').value});
-    }
+      post('android-ui/tap', {{x, y}});
+    }}
+    function sendText() {{
+      post('android-ui/text', {{text: document.getElementById('text').value}});
+    }}
   </script>
 </body>
 </html>"""
@@ -261,22 +313,22 @@ class Handler(BaseHTTPRequestHandler):
 <body>
   <h1>MCHS Alert Add-on</h1>
   <p class="warn">Google Play Services status: {html.escape(data["google_play_services"])}. Push notifications may not work without GMS/FCM.</p>
-  <p><a href="/android">Open Android UI</a> (ADB screenshot/tap/text browser control)</p>
+  <p><a href="android-ui">Open Android UI</a> (ADB screenshot/tap/text browser control)</p>
   <pre>{html.escape(json.dumps(data, ensure_ascii=False, indent=2))}</pre>
-  <form method="post" action="/start-redroid"><button>Start Android</button></form>
-  <form method="post" action="/restart-redroid"><button>Restart Android</button></form>
-  <form method="post" action="/provision"><button>Run Provisioning</button></form>
-  <form method="post" action="/open-notification-access"><button>Open Notification Access settings</button></form>
-  <form method="post" action="/open-mchs"><button>Open MCHS app</button></form>
-  <form method="post" action="/test-uav"><button>Send test UAV alert</button></form>
-  <form method="post" action="/test-cancel"><button>Send test cancel alert</button></form>
+  <form method="post" action="start-redroid"><button>Start Android</button></form>
+  <form method="post" action="restart-redroid"><button>Restart Android</button></form>
+  <form method="post" action="provision"><button>Run Provisioning</button></form>
+  <form method="post" action="open-notification-access"><button>Open Notification Access settings</button></form>
+  <form method="post" action="open-mchs"><button>Open MCHS app</button></form>
+  <form method="post" action="test-uav"><button>Send test UAV alert</button></form>
+  <form method="post" action="test-cancel"><button>Send test cancel alert</button></form>
 
   <h2>Upload APKs</h2>
-  <form method="post" action="/upload-mchs" enctype="multipart/form-data">
+  <form method="post" action="upload-mchs" enctype="multipart/form-data">
     <label>MCHS APK <input type="file" name="apk" accept=".apk"></label>
     <button>Upload MCHS APK</button>
   </form>
-  <form method="post" action="/upload-listener" enctype="multipart/form-data">
+  <form method="post" action="upload-listener" enctype="multipart/form-data">
     <label>Listener APK <input type="file" name="apk" accept=".apk"></label>
     <button>Upload Listener APK</button>
   </form>

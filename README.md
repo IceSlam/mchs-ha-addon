@@ -161,7 +161,13 @@ Send test UAV alert
 Send test cancel alert
 ```
 
-Android UI is exposed through the `/android` Web UI route. The built-in UI uses ADB screenshots plus browser tap/text controls, so the first setup can be completed without an external Android device. A low-latency scrcpy-web/noVNC backend can still be added later, but it is not required for the MVP flow.
+Android UI is exposed through the `android-ui` Web UI route: open the add-on Web UI and click `Open Android UI`. The built-in UI uses ADB screenshots plus browser tap/text controls, so the first setup can be completed without an external Android device. A low-latency scrcpy-web/noVNC backend can still be added later, but it is not required for the MVP flow.
+
+Android UI status API:
+
+```text
+GET api/android-ui/status
+```
 
 ## MQTT Discovery
 
