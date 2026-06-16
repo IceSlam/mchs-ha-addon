@@ -1,36 +1,32 @@
-"""MQTT-backed MCHS alert binary sensor."""
+"""MCHS Alert binary sensor."""
 
 from __future__ import annotations
 
-from homeassistant.components import mqtt
-from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .config_flow import DEFAULT_TOPIC_PREFIX, CONF_TOPIC_PREFIX
+from .const import DOMAIN
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    topic_prefix = entry.data.get(CONF_TOPIC_PREFIX, DEFAULT_TOPIC_PREFIX)
-    entity = MchsAlertBinarySensor(topic_prefix)
-    async_add_entities([entity])
-    await entity.async_subscribe(hass)
+    async_add_entities([MchsAlertBinarySensor(hass.data[DOMAIN][entry.entry_id])])
 
 
-class MchsAlertBinarySensor(BinarySensorEntity):
+class MchsAlertBinarySensor(CoordinatorEntity, BinarySensorEntity):
     _attr_name = "MCHS Alert"
-    _attr_unique_id = "mchs_alert_custom_binary"
+    _attr_unique_id = "mchs_alert"
     _attr_device_class = BinarySensorDeviceClass.SAFETY
 
-    def __init__(self, topic_prefix: str) -> None:
-        self._topic_prefix = topic_prefix.rstrip("/")
-        self._attr_is_on = False
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
 
-    async def async_subscribe(self, hass: HomeAssistant) -> None:
-        @callback
-        def message_received(msg) -> None:
-            self._attr_is_on = msg.payload == "ON"
-            self.async_write_ha_state()
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.data.get("alert", {}).get("state") == "ON"
 
-        await mqtt.async_subscribe(hass, f"{self._topic_prefix}/state", message_received, 1)
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, "server")}, "name": "MCHS Alert Server"}

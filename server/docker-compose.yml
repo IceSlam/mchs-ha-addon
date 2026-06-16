@@ -1,0 +1,43 @@
+services:
+  redroid:
+    image: ${REDROID_IMAGE:-redroid/redroid:13.0.0-latest}
+    container_name: mchs-redroid
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "${ADB_PORT:-5555}:5555"
+    volumes:
+      - redroid-data:/data
+    command:
+      - androidboot.redroid_width=720
+      - androidboot.redroid_height=1280
+      - androidboot.redroid_dpi=320
+
+  bridge:
+    build:
+      context: ./bridge
+    container_name: mchs-alert-server
+    restart: unless-stopped
+    depends_on:
+      - redroid
+    ports:
+      - "${HTTP_PORT:-8765}:8765"
+      - "${WS_PORT:-8766}:8766"
+    environment:
+      API_TOKEN: ${API_TOKEN:-change-me}
+      REGION: ${REGION:-Брянская область}
+      REGIONS: ${REGIONS:-Брянская область}
+      REQUIRE_GMS: ${REQUIRE_GMS:-true}
+      ADB_HOST: ${ADB_HOST:-redroid}
+      ADB_PORT: ${ADB_PORT:-5555}
+      MQTT_URL: ${MQTT_URL:-}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+    volumes:
+      - ./apks:/data/apks
+      - ./provisioning:/opt/mchs-provisioning:ro
+      - bridge-data:/data/state
+
+volumes:
+  redroid-data:
+  bridge-data:
